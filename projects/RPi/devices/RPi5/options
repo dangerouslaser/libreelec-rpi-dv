@@ -20,6 +20,10 @@
         ;;
     esac
 
+  # Vulkan implementation to use (vulkan-loader / no)
+  # enables Mesa's broadcom (v3dv) Vulkan driver and vulkan-tools
+    VULKAN="vulkan-loader"
+
   # Kernel target
     KERNEL_TARGET="Image"
 
