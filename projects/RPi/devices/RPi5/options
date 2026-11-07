@@ -24,6 +24,9 @@
   # enables Mesa's broadcom (v3dv) Vulkan driver and vulkan-tools
     VULKAN="vulkan-loader"
 
+  # Dolby Vision output through the GPU (pi-dv-engine, needs VULKAN) (yes / no)
+    DOLBY_VISION_SUPPORT="yes"
+
   # Kernel target
     KERNEL_TARGET="Image"
 
