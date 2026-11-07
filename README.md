@@ -1,3 +1,42 @@
+# LibreELEC for the Raspberry Pi 5 with Dolby Vision
+
+This is LibreELEC.tv master (`a0fa50bc6e`, LibreELEC 13) with standard
+(TV-led) Dolby Vision output on the Raspberry Pi 5. Kodi plays Profile 5,
+7 (FEL and MEL, single-track) and 8 streams as Dolby Vision: a Vulkan engine
+on the Pi's GPU reconstructs each picture from the hardware decoder's
+frames and the RPU, and sends it with its metadata in the HDMI tunnel
+frame. The TV does the display mapping.
+
+What this tree adds to LibreELEC.tv:
+
+| Change | Where |
+|---|---|
+| Vulkan for the RPi5 (Mesa's v3dv, the loader, `vulkaninfo`) | `projects/RPi/devices/RPi5/options` (`VULKAN="vulkan-loader"`) |
+| The kernel's `Dolby Vision` HDMI connector property, attached by `vc4` | `projects/RPi/patches/linux/0001–0005` |
+| `pi-dv-engine`: the engine, `libpi_engine.so.1` | `packages/multimedia/pi-dv-engine/` |
+| An FFmpeg fix: the V4L2 request HEVC decoder no longer hangs on close after running out of CMA | `packages/multimedia/ffmpeg/patches/rpi/0002-…` |
+| Kodi's build switch (`DOLBY_VISION_SUPPORT`, `-DENABLE_PIDV`) | `packages/mediacenter/kodi/package.mk` |
+| Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, and a Dolby Vision group in the video settings | `projects/RPi/devices/RPi5/patches/kodi/0001–0006` |
+
+**Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
+The engine's source is downloaded from this repository's release
+(`pi-dv-engine-<version>.tar.xz`).
+
+**Use:** flash the image, or copy its `.tar` to `/storage/.update/` and
+reboot. The display mode must be the video's size: turn on "Adjust display
+refresh rate" with a 4K desktop for 4K streams. Dolby Vision must be among
+the player's "Allowed HDR dynamic metadata formats". During playback the
+video settings' "Dolby Vision" group switches the output and its options
+(the enhancement layer upscale, chroma MMR and filters at the Expert
+settings level).
+
+**Limitations:** the GUI over Dolby Vision video is legible but in wrong
+colours; dual-track profile 7 isn't read; the sharper enhancement layer
+upscales (bicubic, Lanczos3, Annex B) aren't real time for 4K FEL on the
+Pi 5. Tested on an LG B4.
+
+---
+
 # LibreELEC
 
 LibreELEC is a 'Just enough OS' Linux distribution for the award-winning [Kodi](https://kodi.tv) software on popular mediacentre hardware. Further information on the project can be found on the [LibreELEC website](https://libreelec.tv).
