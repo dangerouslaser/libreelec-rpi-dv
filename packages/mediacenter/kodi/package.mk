@@ -227,6 +227,13 @@ configure_package() {
     KODI_VAAPI="-DENABLE_VAAPI=OFF"
   fi
 
+  if [ "${DOLBY_VISION_SUPPORT}" = yes ]; then
+    PKG_DEPENDS_TARGET+=" pi-dv-engine"
+    KODI_PIDV="-DENABLE_PIDV=ON"
+  else
+    KODI_PIDV="-DENABLE_PIDV=OFF"
+  fi
+
   if [ "${TARGET_ARCH}" = "x86_64" ]; then
     KODI_ARCH="-DWITH_CPU=${TARGET_ARCH}"
   else
@@ -284,6 +291,7 @@ configure_package() {
                          ${KODI_ARCH} \
                          ${KODI_NEON} \
                          ${KODI_VAAPI} \
+                         ${KODI_PIDV} \
                          ${KODI_CEC} \
                          ${KODI_PLATFORM} \
                          ${KODI_SAMBA} \
