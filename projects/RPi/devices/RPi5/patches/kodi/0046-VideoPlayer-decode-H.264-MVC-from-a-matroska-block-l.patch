@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dom Cobley <popcornmix@gmail.com>
+Date: Sat, 24 Oct 2026 14:04:47 +0000
+Subject: [PATCH 46/46] VideoPlayer: decode H.264 MVC from a matroska block
+ layout without an mvcC box
+
+mkvmerge remuxes of MakeMKV/tsMuxer MVC rips keep StereoMode block_lr and the
+dependent view's subset SPS and slices in band, but drop the mvcC box from
+CodecPrivate. The stream was then decoded as 2D.
+
+(cherry picked from commit 11e612baba59eb270851763d5b3b9a2b997e79b0)
+---
+ xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
+index 5a323924f..971c65670 100644
+--- a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
+@@ -2077,8 +2077,12 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
+         // multiview forces software decoding before the option can be refused -
+         // and get nothing back, so an ffmpeg without H.264 MVC support keeps
+         // hardware decoding the base view exactly as it does today.
+-        if ((stereoMode.empty() || stereoMode == "block_lr" || stereoMode == "block_rl") &&
+-            HasMvcExtension(pStream) && SupportsMultiviewDecode(pStream->codecpar->codec_id))
++        // A remux may drop the mvcC box and keep the dependent view's parameter
++        // sets in band, so a block layout on H.264 is enough on its own.
++        const bool blockLaced = stereoMode == "block_lr" || stereoMode == "block_rl";
++        if (((blockLaced && pStream->codecpar->codec_id == AV_CODEC_ID_H264) ||
++             (stereoMode.empty() && HasMvcExtension(pStream))) &&
++            SupportsMultiviewDecode(pStream->codecpar->codec_id))
+         {
+           stereoMode = stereoMode == "block_rl" ? "right_left" : "left_right";
+           multiview = true;
