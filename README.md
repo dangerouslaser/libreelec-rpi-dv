@@ -1,7 +1,7 @@
 # LibreELEC for the Raspberry Pi 5 with Dolby Vision
 
-This is LibreELEC.tv master (`a0fa50bc6e`, LibreELEC 13) with standard
-(TV-led) Dolby Vision output on the Raspberry Pi 5. Kodi plays Profile 5,
+This is LibreELEC.tv master (LibreELEC 13) with standard (TV-led) Dolby
+Vision output and stereoscopic 3D playback on the Raspberry Pi 5. Kodi plays Profile 5,
 7 (FEL and MEL, single-track) and 8 streams as Dolby Vision: a Vulkan engine
 on the Pi's GPU reconstructs each picture from the hardware decoder's
 frames and the RPU, and sends it with its metadata in the HDMI tunnel
@@ -17,6 +17,8 @@ What this tree adds to LibreELEC.tv:
 | An FFmpeg fix: the V4L2 request HEVC decoder no longer hangs on close after running out of CMA | `packages/multimedia/ffmpeg/patches/rpi/0002-…` |
 | Kodi's build switch (`DOLBY_VISION_SUPPORT`, `-DENABLE_PIDV`) | `packages/mediacenter/kodi/package.mk` |
 | Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, a Dolby Vision group in the video settings, and subtitles composited into the Dolby Vision signal | `projects/RPi/devices/RPi5/patches/kodi/0001–0007` |
+| FFmpeg: H.264 MVC decoding (both views of Blu-ray 3D and 3D camcorder streams), Dom Cobley's series backported to 9.0 | `packages/multimedia/ffmpeg/patches/rpi/0003-…` |
+| Kodi: stereoscopic 3D, Dom Cobley's series: HDMI frame-packed, side-by-side and top-and-bottom modes with an eye per video plane, H.264 MVC and MV-HEVC, Blu-ray 3D, 3D subtitles at the disc's depth | `projects/RPi/devices/RPi5/patches/kodi/0008–0046` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
 The engine's source is downloaded from this repository's release
@@ -33,10 +35,21 @@ settings level).
 Subtitles are composited into the Dolby Vision signal, in their own
 colours.
 
+**3D:** set "Playback mode of stereoscopic 3D video" (Player / Videos) to
+"Preferred mode", leave "Stereoscopic 3D mode" (System / Display) disabled
+with its preferred mode "Same as movie", and turn on "Adjust display
+refresh rate". The 3D modes are 1080p, which Kodi only switches to from a
+1920x1080 desktop; 4K Dolby Vision streams then need the 4K modes in the
+whitelist. A 3D display gets the frame-packed 1080p24 mode where it offers
+one; full side-by-side and top-and-bottom sources are converted to it.
+H.264 MVC is decoded in software.
+
 **Limitations:** the rest of the GUI over Dolby Vision video (menus, the
 OSD) is legible but in wrong colours; dual-track profile 7 isn't read; the
 sharper enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't
-real time for 4K FEL on the Pi 5. Tested on an LG B4.
+real time for 4K FEL on the Pi 5; field-coded H.264 MVC (3D camcorder
+recordings) crashes Kodi when it is deinterlaced. Tested on an LG B4, which
+has no 3D modes: 3D was checked as side-by-side output there.
 
 ---
 
