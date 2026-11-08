@@ -1,0 +1,32 @@
+# Keeps the master branch equal to LibreELEC.tv master (fast-forward only),
+# so upstream can be merged into main with a pull request master -> main.
+name: Sync master from LibreELEC.tv
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast-forward master to LibreELEC.tv master
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q repo && cd repo
+          git remote add upstream https://github.com/LibreELEC/LibreELEC.tv.git
+          git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+          git fetch -q --filter=blob:none upstream master
+          git fetch -q --filter=blob:none origin master || true
+          echo "LibreELEC.tv master: $(git rev-parse upstream/master)"
+          git push origin upstream/master:refs/heads/master
