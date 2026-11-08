@@ -13,10 +13,10 @@ What this tree adds to LibreELEC.tv:
 |---|---|
 | Vulkan for the RPi5 (Mesa's v3dv, the loader, `vulkaninfo`) | `projects/RPi/devices/RPi5/options` (`VULKAN="vulkan-loader"`) |
 | The kernel's `Dolby Vision` HDMI connector property, attached by `vc4` | `projects/RPi/patches/linux/0001–0005` |
-| `pi-dv-engine`: the engine, `libpi_engine.so.1` | `packages/multimedia/pi-dv-engine/` |
+| `pi-dv-engine`: the engine, `libpi_engine.so.2` | `packages/multimedia/pi-dv-engine/` |
 | An FFmpeg fix: the V4L2 request HEVC decoder no longer hangs on close after running out of CMA | `packages/multimedia/ffmpeg/patches/rpi/0002-…` |
 | Kodi's build switch (`DOLBY_VISION_SUPPORT`, `-DENABLE_PIDV`) | `packages/mediacenter/kodi/package.mk` |
-| Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, and a Dolby Vision group in the video settings | `projects/RPi/devices/RPi5/patches/kodi/0001–0006` |
+| Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, a Dolby Vision group in the video settings, and subtitles composited into the Dolby Vision signal | `projects/RPi/devices/RPi5/patches/kodi/0001–0007` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
 The engine's source is downloaded from this repository's release
@@ -30,10 +30,13 @@ video settings' "Dolby Vision" group switches the output and its options
 (the enhancement layer upscale, chroma MMR and filters at the Expert
 settings level).
 
-**Limitations:** the GUI over Dolby Vision video is legible but in wrong
-colours; dual-track profile 7 isn't read; the sharper enhancement layer
-upscales (bicubic, Lanczos3, Annex B) aren't real time for 4K FEL on the
-Pi 5. Tested on an LG B4.
+Subtitles are composited into the Dolby Vision signal, in their own
+colours.
+
+**Limitations:** the rest of the GUI over Dolby Vision video (menus, the
+OSD) is legible but in wrong colours; dual-track profile 7 isn't read; the
+sharper enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't
+real time for 4K FEL on the Pi 5. Tested on an LG B4.
 
 ---
 
