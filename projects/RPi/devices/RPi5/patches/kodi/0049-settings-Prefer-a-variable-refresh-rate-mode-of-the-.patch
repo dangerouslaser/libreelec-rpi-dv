@@ -1,0 +1,40 @@
+From 0c0f7f29801433cab86f7520f5ca8d3070945e42 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 13:55:52 -0500
+Subject: [PATCH 49/49] [settings] Prefer a variable refresh rate mode of the
+ same size and rate
+
+A resolution is stored as its size and refresh rate, which a variable
+refresh rate mode can share with an ordinary mode: at 1080p on a 120 Hz
+FreeSync display there are two 60 Hz modes, and only the one derived
+from 1080p120 switches to the playback rates without resynchronising.
+When matching a stored resolution, prefer the mode flagged
+D3DPRESENTFLAG_VRR among equal matches.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ xbmc/settings/DisplaySettings.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/xbmc/settings/DisplaySettings.cpp b/xbmc/settings/DisplaySettings.cpp
+index f9e19e8a9..479b1598b 100644
+--- a/xbmc/settings/DisplaySettings.cpp
++++ b/xbmc/settings/DisplaySettings.cpp
+@@ -679,7 +679,13 @@ RESOLUTION CDisplaySettings::FindBestMatchingResolution(const std::map<RESOLUTIO
+     float score = 10 * (square_error((float)info.iScreenWidth, (float)width) +
+                   square_error((float)info.iScreenHeight, (float)height) +
+                   square_error(info.fRefreshRate, refreshrate));
+-    if (score < bestScore)
++    // A mode the display switches to and from without resynchronising (variable refresh
++    // rate) wins over an ordinary mode of the same size and rate.
++    const auto best = resolutionInfos.find(bestRes);
++    const bool vrrTieBreak = score == bestScore && (info.dwFlags & D3DPRESENTFLAG_VRR) &&
++                             best != resolutionInfos.end() &&
++                             !(best->second.dwFlags & D3DPRESENTFLAG_VRR);
++    if (score < bestScore || vrrTieBreak)
+     {
+       bestScore = score;
+       bestRes = it->first;
+-- 
+2.50.1 (Apple Git-155)
+

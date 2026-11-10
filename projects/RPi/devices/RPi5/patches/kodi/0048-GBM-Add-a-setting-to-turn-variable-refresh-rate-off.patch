@@ -1,0 +1,341 @@
+From a5d5c191ebde1b4b610497387e8ca4b82be24ae7 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 13:55:41 -0500
+Subject: [PATCH 48/49] [GBM] Add a setting to turn variable refresh rate off
+
+Variable refresh rate is used whenever the connector is vrr_capable. Add
+"Variable refresh rate" to System / Display, shown when the display
+supports it and on by default. Turning it off sends VRR_ENABLED 0 at the
+next modeset and drops the VRR flag from the modes, so refresh rate
+switches go back to the ordinary modes.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ .../resources/strings.po                      | 16 +++++++++++--
+ system/settings/linux.xml                     | 10 ++++++++
+ xbmc/settings/SettingConditions.cpp           |  8 +++++++
+ xbmc/windowing/WinSystem.cpp                  |  1 +
+ xbmc/windowing/WinSystem.h                    |  3 +++
+ xbmc/windowing/gbm/WinSystemGbm.cpp           | 23 +++++++++++++++++++
+ xbmc/windowing/gbm/WinSystemGbm.h             |  6 ++++-
+ xbmc/windowing/gbm/drm/DRMAtomic.cpp          |  9 ++++++--
+ xbmc/windowing/gbm/drm/DRMAtomic.h            |  1 +
+ xbmc/windowing/gbm/drm/DRMUtils.cpp           | 19 +++++++++++----
+ xbmc/windowing/gbm/drm/DRMUtils.h             |  9 ++++++--
+ 11 files changed, 94 insertions(+), 11 deletions(-)
+
+diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
+index 6b0e8e279..acadf0ae9 100644
+--- a/addons/resource.language.en_gb/resources/strings.po
++++ b/addons/resource.language.en_gb/resources/strings.po
+@@ -7835,7 +7835,13 @@ msgctxt "#13483"
+ msgid "8 bit"
+ msgstr ""
+ 
+-#empty strings from id 13484 to 13504
++#. Label of setting "System / Display / Variable refresh rate"
++#: system/settings/linux.xml
++msgctxt "#13484"
++msgid "Variable refresh rate"
++msgstr ""
++
++#empty strings from id 13485 to 13504
+ 
+ #: system/settings/settings.xml
+ msgctxt "#13505"
+@@ -20385,7 +20391,13 @@ msgctxt "#36058"
+ msgid "Automatic"
+ msgstr ""
+ 
+-#empty strings from id 36059 to 36095
++#. Description of setting with label #13484 "Variable refresh rate"
++#: system/settings/linux.xml
++msgctxt "#36059"
++msgid "Change the refresh rate for playback without the display blanking, on a display with variable refresh rate (FreeSync). Variable refresh rate has to be turned on for this input in the display's settings."
++msgstr ""
++
++#empty strings from id 36060 to 36095
+ 
+ #. Label of setting "System / Display / Use system HDR/SDR brightness balance"
+ #: system/settings/settings.xml
+diff --git a/system/settings/linux.xml b/system/settings/linux.xml
+index 7a2c4e94b..5d8fd7788 100644
+--- a/system/settings/linux.xml
++++ b/system/settings/linux.xml
+@@ -249,6 +249,16 @@
+           </dependencies>
+           <control type="list" format="string" />
+         </setting>
++        <setting id="winsystem.vrr" type="boolean" label="13484" help="36059">
++          <dependencies>
++            <dependency type="visible">
++              <condition on="property" name="isvrrdisplay" />
++            </dependency>
++          </dependencies>
++          <level>1</level>
++          <default>true</default>
++          <control type="toggle" />
++        </setting>
+         <setting id="videoscreen.limitedrange" type="boolean" label="36042" help="36359">
+           <level>3</level>
+           <default>false</default>
+diff --git a/xbmc/settings/SettingConditions.cpp b/xbmc/settings/SettingConditions.cpp
+index f91fde21b..4008236c8 100644
+--- a/xbmc/settings/SettingConditions.cpp
++++ b/xbmc/settings/SettingConditions.cpp
+@@ -137,6 +137,13 @@ bool IsHDRDisplay(const std::string& /*condition*/,
+   return CServiceBroker::GetWinSystem()->IsHDRDisplay();
+ }
+ 
++bool IsVRRDisplay(const std::string& /*condition*/,
++                  const std::string& /*value*/,
++                  const SettingConstPtr& /*setting*/)
++{
++  return CServiceBroker::GetWinSystem()->IsVRRDisplay();
++}
++
+ bool IsMasterUser(const std::string& /*condition*/,
+                   const std::string& /*value*/,
+                   const SettingConstPtr& /*setting*/)
+@@ -471,6 +478,7 @@ void CSettingConditions::Initialize()
+   m_complexConditions.try_emplace("supportsvideosuperresolution", SupportsVideoSuperResolution);
+   m_complexConditions.try_emplace("supportsdolbyvision", SupportsDolbyVision);
+   m_complexConditions.try_emplace("ishdrdisplay", IsHDRDisplay);
++  m_complexConditions.try_emplace("isvrrdisplay", IsVRRDisplay);
+   m_complexConditions.try_emplace("ismasteruser", IsMasterUser);
+   m_complexConditions.try_emplace("hassubtitlesfontextensions", HasSubtitlesFontExtensions);
+   m_complexConditions.try_emplace("profilecanwritedatabase", ProfileCanWriteDatabase);
+diff --git a/xbmc/windowing/WinSystem.cpp b/xbmc/windowing/WinSystem.cpp
+index 37453ea2c..2875ca44b 100644
+--- a/xbmc/windowing/WinSystem.cpp
++++ b/xbmc/windowing/WinSystem.cpp
+@@ -25,6 +25,7 @@
+ #include <mutex>
+ 
+ const char* CWinSystemBase::SETTING_WINSYSTEM_IS_HDR_DISPLAY = "winsystem.ishdrdisplay";
++const char* CWinSystemBase::SETTING_WINSYSTEM_VRR = "winsystem.vrr";
+ 
+ RESOLUTION_WHR::RESOLUTION_WHR(int newWidth,
+                                int newHeight,
+diff --git a/xbmc/windowing/WinSystem.h b/xbmc/windowing/WinSystem.h
+index 477632da4..6a6dea8fd 100644
+--- a/xbmc/windowing/WinSystem.h
++++ b/xbmc/windowing/WinSystem.h
+@@ -245,6 +245,8 @@ public:
+    */
+   virtual bool SetHDR(const VideoPicture* videoPicture) { return false; }
+   virtual bool IsHDRDisplay() { return false; }
++  //! The display can be driven with variable refresh rate.
++  virtual bool IsVRRDisplay() { return false; }
+   virtual HDR_STATUS ToggleHDR() { return HDR_STATUS::HDR_UNSUPPORTED; }
+   virtual HDR_STATUS GetOSHDRStatus() { return HDR_STATUS::HDR_UNSUPPORTED; }
+   virtual CHDRCapabilities GetDisplayHDRCapabilities() const { return {}; }
+@@ -254,6 +256,7 @@ public:
+     return KODI::UTILS::Colorimetry::DEFAULT;
+   }
+   static const char* SETTING_WINSYSTEM_IS_HDR_DISPLAY;
++  static const char* SETTING_WINSYSTEM_VRR;
+   virtual float GetGuiSdrPeakLuminance() const { return .0f; }
+   virtual bool HasSystemSdrPeakLuminance() { return false; }
+ 
+diff --git a/xbmc/windowing/gbm/WinSystemGbm.cpp b/xbmc/windowing/gbm/WinSystemGbm.cpp
+index fee3b420b..57635e1ca 100644
+--- a/xbmc/windowing/gbm/WinSystemGbm.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbm.cpp
+@@ -21,6 +21,7 @@
+ #include "settings/Settings.h"
+ #include "settings/SettingsComponent.h"
+ #include "settings/lib/Setting.h"
++#include "settings/lib/SettingsManager.h"
+ #include "utils/DRMHelpers.h"
+ #include "utils/DisplayInfo.h"
+ #include "utils/HDRUtils.h"
+@@ -196,6 +197,8 @@ bool CWinSystemGbm::InitWindowSystem()
+   if (setting)
+     setting->SetVisible(true);
+ 
++  settings->GetSettingsManager()->RegisterCallback(this, {SETTING_WINSYSTEM_VRR});
++
+   SetHDR(nullptr);
+ 
+   CLog::Log(LOGDEBUG, "CWinSystemGbm::{} - initialized DRM", __FUNCTION__);
+@@ -206,6 +209,10 @@ bool CWinSystemGbm::DestroyWindowSystem()
+ {
+   CLog::Log(LOGDEBUG, "CWinSystemGbm::{} - deinitialized DRM", __FUNCTION__);
+ 
++  const auto settingsComponent = CServiceBroker::GetSettingsComponent();
++  if (settingsComponent && settingsComponent->GetSettings())
++    settingsComponent->GetSettings()->GetSettingsManager()->UnregisterCallback(this);
++
+   m_libinput.reset();
+ 
+   return true;
+@@ -630,6 +637,22 @@ bool CWinSystemGbm::SetHDR(const VideoPicture* videoPicture)
+   return m_hdrBlob.IsValid();
+ }
+ 
++bool CWinSystemGbm::IsVRRDisplay()
++{
++  return m_DRM && m_DRM->SupportsVrr();
++}
++
++void CWinSystemGbm::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
++{
++  if (!setting || setting->GetId() != SETTING_WINSYSTEM_VRR || !m_DRM)
++    return;
++
++  // The modes the display switches between without resynchronising are flagged
++  // only while VRR is on, and VRR_ENABLED goes with the next modeset.
++  UpdateResolutions();
++  m_DRM->ForceModeset();
++}
++
+ bool CWinSystemGbm::IsHDRDisplay()
+ {
+   auto drm = std::dynamic_pointer_cast<CDRMAtomic>(m_DRM);
+diff --git a/xbmc/windowing/gbm/WinSystemGbm.h b/xbmc/windowing/gbm/WinSystemGbm.h
+index 39931d90a..9da1d8be3 100644
+--- a/xbmc/windowing/gbm/WinSystemGbm.h
++++ b/xbmc/windowing/gbm/WinSystemGbm.h
+@@ -11,6 +11,7 @@
+ #include "VideoLayerBridge.h"
+ #include "drm/DRMObject.h"
+ #include "drm/DRMUtils.h"
++#include "settings/lib/ISettingCallback.h"
+ #include "threads/CriticalSection.h"
+ #include "threads/SystemClock.h"
+ #include "utils/DisplayInfo.h"
+@@ -44,7 +45,7 @@ enum class DolbyVisionOutput
+   DOLBY_VSIF, //!< Dolby's vendor-specific infoframe
+ };
+ 
+-class CWinSystemGbm : public CWinSystemBase
++class CWinSystemGbm : public CWinSystemBase, public ISettingCallback
+ {
+ public:
+   CWinSystemGbm();
+@@ -77,6 +78,9 @@ public:
+   KODI::UTILS::Eotf GetEotf() const override { return m_eotf; }
+   bool SetHDR(const VideoPicture* videoPicture) override;
+   bool IsHDRDisplay() override;
++  bool IsVRRDisplay() override;
++
++  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
+   CHDRCapabilities GetDisplayHDRCapabilities() const override;
+ 
+   /*!
+diff --git a/xbmc/windowing/gbm/drm/DRMAtomic.cpp b/xbmc/windowing/gbm/drm/DRMAtomic.cpp
+index 22cbc9cfd..eb8f6a5eb 100644
+--- a/xbmc/windowing/gbm/drm/DRMAtomic.cpp
++++ b/xbmc/windowing/gbm/drm/DRMAtomic.cpp
+@@ -93,8 +93,8 @@ void CDRMAtomic::DrmAtomicCommit(int fb_id, int flags, bool rendered, bool video
+     if (!AddProperty(m_crtc, "ACTIVE", m_active ? 1 : 0))
+       return;
+ 
+-    if (m_vrr)
+-      AddProperty(m_crtc, "VRR_ENABLED", 1);
++    if (m_vrrCapable)
++      AddProperty(m_crtc, "VRR_ENABLED", UseVrr() ? 1 : 0);
+   }
+ 
+   // In Direct-To-Plane (dual plane) mode m_gui_plane is the output
+@@ -331,6 +331,11 @@ bool CDRMAtomic::SetVideoMode(const RESOLUTION_INFO& res, struct gbm_bo* bo)
+   return true;
+ }
+ 
++void CDRMAtomic::ForceModeset()
++{
++  m_need_modeset = true;
++}
++
+ bool CDRMAtomic::SetActive(bool active)
+ {
+   m_need_modeset = true;
+diff --git a/xbmc/windowing/gbm/drm/DRMAtomic.h b/xbmc/windowing/gbm/drm/DRMAtomic.h
+index 166e7d9b6..5b362d8ed 100644
+--- a/xbmc/windowing/gbm/drm/DRMAtomic.h
++++ b/xbmc/windowing/gbm/drm/DRMAtomic.h
+@@ -31,6 +31,7 @@ public:
+   void FlipPage(struct gbm_bo* bo, bool rendered, bool videoLayer, bool async) override;
+   bool SetVideoMode(const RESOLUTION_INFO& res, struct gbm_bo* bo) override;
+   bool SetActive(bool active) override;
++  void ForceModeset() override;
+   bool InitDrm() override;
+   void DestroyDrm() override;
+   bool SupportsFencing() override { return true; }
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.cpp b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+index 625032c3d..44e38fd66 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.cpp
++++ b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+@@ -15,6 +15,7 @@
+ #include "utils/StringUtils.h"
+ #include "utils/log.h"
+ #include "windowing/GraphicContext.h"
++#include "windowing/WinSystem.h"
+ 
+ #include <algorithm>
+ 
+@@ -638,9 +639,9 @@ bool CDRMUtils::InitDrm()
+   if (!FindPreferredMode())
+     return false;
+ 
+-  m_vrr = m_connector->GetPropertyValue("vrr_capable").value_or(0) == 1 &&
+-          m_crtc->SupportsProperty("VRR_ENABLED");
+-  if (m_vrr)
++  m_vrrCapable = m_connector->GetPropertyValue("vrr_capable").value_or(0) == 1 &&
++                 m_crtc->SupportsProperty("VRR_ENABLED");
++  if (m_vrrCapable)
+     CLog::LogF(LOGINFO, "Variable refresh rate supported by {}", m_connector->GetName());
+ 
+   ret = drmSetMaster(m_fd);
+@@ -897,9 +898,19 @@ bool SameTimingButFrontPorch(const drmModeModeInfo& a, const drmModeModeInfo& b)
+ 
+ //! With variable refresh rate, the driver switches between the modes of a size that only
+ //! differ in their vertical front porch without a modeset.
++bool CDRMUtils::UseVrr() const
++{
++  if (!m_vrrCapable)
++    return false;
++
++  const auto settingsComponent = CServiceBroker::GetSettingsComponent();
++  const auto settings = settingsComponent ? settingsComponent->GetSettings() : nullptr;
++  return !settings || settings->GetBool(CWinSystemBase::SETTING_WINSYSTEM_VRR);
++}
++
+ bool CDRMUtils::IsVrrMode(const drmModeModeInfo& mode) const
+ {
+-  if (!m_vrr || !IsProgressive2D(mode))
++  if (!UseVrr() || !IsProgressive2D(mode))
+     return false;
+ 
+   for (int i = 0; i < m_connector->GetModesCount(); i++)
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.h b/xbmc/windowing/gbm/drm/DRMUtils.h
+index 34c486599..ee7c310be 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.h
++++ b/xbmc/windowing/gbm/drm/DRMUtils.h
+@@ -87,7 +87,12 @@ public:
+   bool FindSecondVideoPlane(uint32_t format, uint64_t modifier, uint64_t width, uint64_t height);
+ 
+   bool HasQuirk(int quirk) const { return m_drm_quirks & quirk; }
+-  bool SupportsVrr() const { return m_vrr; }
++  //! The driver can drive the connector with variable refresh rate.
++  bool SupportsVrr() const { return m_vrrCapable; }
++  //! Variable refresh rate is supported and turned on in the settings.
++  bool UseVrr() const;
++  //! Commit the mode again at the next flip, e.g. for a changed VRR_ENABLED.
++  virtual void ForceModeset() {}
+ 
+   std::vector<std::string> GetConnectedConnectorNames();
+ 
+@@ -143,7 +148,7 @@ protected:
+   CDRMPlane* m_gui_plane{nullptr};
+   drmModeModeInfo* m_mode = nullptr;
+   //! The driver drives the connector with variable refresh rate once VRR_ENABLED is set.
+-  bool m_vrr{false};
++  bool m_vrrCapable{false};
+ 
+   int m_width = 0;
+   int m_height = 0;
+-- 
+2.50.1 (Apple Git-155)
+

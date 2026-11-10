@@ -23,7 +23,7 @@ What this tree adds to LibreELEC.tv:
 | Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, a Dolby Vision group in the video settings, and subtitles composited into the Dolby Vision signal | `projects/RPi/devices/RPi5/patches/kodi/0001–0007` |
 | FFmpeg: H.264 MVC decoding (both views of Blu-ray 3D and 3D camcorder streams), Dom Cobley's series backported to 9.0 | `packages/multimedia/ffmpeg/patches/rpi/0003-…` |
 | Kodi: stereoscopic 3D, Dom Cobley's series: HDMI frame-packed, side-by-side and top-and-bottom modes with an eye per video plane, H.264 MVC and MV-HEVC, Blu-ray 3D, 3D subtitles at the disc's depth | `projects/RPi/devices/RPi5/patches/kodi/0008–0046` |
-| Kodi: VRR_ENABLED on a `vrr_capable` connector, and refresh rate switches to the modes the display changes to without resynchronising | `projects/RPi/devices/RPi5/patches/kodi/0047` |
+| Kodi: VRR_ENABLED on a `vrr_capable` connector, refresh rate switches to the modes the display changes to without resynchronising, a "Variable refresh rate" setting, and those modes preferred for a stored resolution | `projects/RPi/devices/RPi5/patches/kodi/0047–0049` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
 The engine's source is downloaded from this repository's release
@@ -49,11 +49,11 @@ B4). With "Adjust display refresh rate" on, Kodi switches to them at the
 video's frame rate or twice it (24p plays at 47.96 Hz), and the display
 follows without blanking. Turning Dolby Vision on or off still changes the
 mode, so a Dolby Vision stream starts with one blank, at its final rate.
-HDR10 at 4K goes out as 12-bit YUV 4:2:2. `vc4.vrr=0` on the kernel command
-line (`cmdline.txt`) turns VRR off. HDMI 2.1 VRR without FreeSync isn't
-supported. Use that fastest mode, or the 4K one, as the desktop: from a
-1080p 60 Hz desktop on such a display, the switch into and out of playback
-is still a mode change.
+HDR10 at 4K goes out as 12-bit YUV 4:2:2. A desktop resolution a VRR mode
+shares (1080p 60 Hz, say) uses the VRR mode. "Variable refresh rate"
+(System / Display, shown with such a display) turns VRR off in Kodi, and
+`vc4.vrr=0` on the kernel command line (`cmdline.txt`) in the kernel. HDMI
+2.1 VRR without FreeSync isn't supported.
 
 **3D:** set "Playback mode of stereoscopic 3D video" (Player / Videos) to
 "Preferred mode", leave "Stereoscopic 3D mode" (System / Display) disabled
