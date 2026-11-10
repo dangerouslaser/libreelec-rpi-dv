@@ -16,7 +16,7 @@ What this tree adds to LibreELEC.tv:
 | Linux 7.4 (Raspberry Pi's `rpi-7.4.y`, 7.4.0-rc2) | `packages/linux/package.mk` |
 | The kernel's `Dolby Vision` HDMI connector property, attached by `vc4` | `projects/RPi/patches/linux/0001–0005` |
 | An ASoC fix: with GCC 16, no sound card bound and `vc4` crashed at boot | `projects/RPi/patches/linux/0006` |
-| FreeSync on `vc4`: the sink's range, `vrr_capable`, modes at the video rates that differ only in their vertical front porch, switched without a modeset, and the FreeSync SPD infoframe | `projects/RPi/patches/linux/0007–0008` |
+| FreeSync on `vc4`: the sink's range, `vrr_capable`, modes at the video rates that differ only in their vertical front porch from each size's fastest mode, switched without a modeset, and the FreeSync SPD infoframe | `projects/RPi/patches/linux/0007–0008` |
 | `pi-dv-engine`: the engine, `libpi_engine.so.2` | `packages/multimedia/pi-dv-engine/` |
 | An FFmpeg fix: the V4L2 request HEVC decoder no longer hangs on close after running out of CMA | `packages/multimedia/ffmpeg/patches/rpi/0002-…` |
 | Kodi's build switch (`DOLBY_VISION_SUPPORT`, `-DENABLE_PIDV`) | `packages/mediacenter/kodi/package.mk` |
@@ -42,15 +42,18 @@ colours.
 
 **VRR:** with a FreeSync display (its EDID has AMD's FreeSync block; turn
 FreeSync or VRR on in the TV's settings for that input), the kernel adds,
-for each display size, modes at 23.976 to 59.94 Hz within the display's
-range that only differ from the size's 60 Hz mode in their vertical front
-porch. With "Adjust display refresh rate" on, Kodi switches to them at the
+for each display size, modes at 23.976 to 60 Hz within the display's range
+that only differ in their vertical front porch from the fastest mode of
+that size the Pi can send within the range (1080p120 and 2160p60 on an LG
+B4). With "Adjust display refresh rate" on, Kodi switches to them at the
 video's frame rate or twice it (24p plays at 47.96 Hz), and the display
 follows without blanking. Turning Dolby Vision on or off still changes the
 mode, so a Dolby Vision stream starts with one blank, at its final rate.
 HDR10 at 4K goes out as 12-bit YUV 4:2:2. `vc4.vrr=0` on the kernel command
 line (`cmdline.txt`) turns VRR off. HDMI 2.1 VRR without FreeSync isn't
-supported.
+supported. Use that fastest mode, or the 4K one, as the desktop: from a
+1080p 60 Hz desktop on such a display, the switch into and out of playback
+is still a mode change.
 
 **3D:** set "Playback mode of stereoscopic 3D video" (Player / Videos) to
 "Preferred mode", leave "Stereoscopic 3D mode" (System / Display) disabled
@@ -66,10 +69,8 @@ OSD) is legible but in wrong colours; dual-track profile 7 isn't read; the
 sharper enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't
 real time for 4K FEL on the Pi 5; field-coded H.264 MVC (3D camcorder
 recordings) crashes Kodi when it is deinterlaced. Tested on an LG B4, which
-has no 3D modes: 3D was checked as side-by-side output there. With a
-1080p desktop, 23.976 fps streams use the ordinary 23.976 Hz mode: at 1080p
-the nearest VRR mode is 0.03% off 47.952 Hz, outside Kodi's match. The
-kernel is a 7.4 release candidate.
+has no 3D modes: 3D was checked as side-by-side output there. The kernel
+is a 7.4 release candidate.
 
 ---
 

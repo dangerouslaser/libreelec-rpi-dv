@@ -1,4 +1,4 @@
-From 2c58538c7cf364da60d15efa917a3e31f27e2b73 Mon Sep 17 00:00:00 2001
+From 4c653ce02980bbe2026515f219f49f809c005634 Mon Sep 17 00:00:00 2001
 From: Bryan Hoban <bryan.hoban@gmail.com>
 Date: Tue, 10 Nov 2026 17:26:09 +0000
 Subject: [PATCH 8/8] drm/vc4: hdmi: Add FreeSync variable refresh rate
@@ -10,10 +10,10 @@ the source sends an SPD infoframe with AMD's OUI and FreeSync flags.
 
 When the sink has a FreeSync range:
 
-- set vrr_capable, and for each size add modes at 23.976 to 59.94Hz
+- set vrr_capable, and for each size add modes at 23.976 to 60Hz
   within the range that only differ in their vertical front porch from
-  the fastest mode of up to 60Hz of that size, like amdgpu's FreeSync
-  video modes;
+  the fastest mode of that size in the range that can be sent as 8-bit
+  RGB (1080p120, 2160p60), like amdgpu's FreeSync video modes;
 - with VRR_ENABLED, switch between those modes without a modeset, and
   send the FreeSync SPD infoframe instead of the generic one.
 
@@ -25,12 +25,12 @@ generations are untested.
 
 Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
 ---
- drivers/gpu/drm/vc4/vc4_hdmi.c | 317 ++++++++++++++++++++++++++++++++-
- drivers/gpu/drm/vc4/vc4_hdmi.h |  20 +++
- 2 files changed, 335 insertions(+), 2 deletions(-)
+ drivers/gpu/drm/vc4/vc4_hdmi.c | 326 ++++++++++++++++++++++++++++++++-
+ drivers/gpu/drm/vc4/vc4_hdmi.h |  20 ++
+ 2 files changed, 344 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/vc4/vc4_hdmi.c b/drivers/gpu/drm/vc4/vc4_hdmi.c
-index 16f33d987..7a86244f6 100644
+index 16f33d987..06673370b 100644
 --- a/drivers/gpu/drm/vc4/vc4_hdmi.c
 +++ b/drivers/gpu/drm/vc4/vc4_hdmi.c
 @@ -121,6 +121,10 @@
@@ -75,14 +75,19 @@ index 16f33d987..7a86244f6 100644
  
  	for (;;) {
  		ret = vc4_hdmi_reset_link(connector, ctx);
-@@ -440,6 +458,190 @@ static int vc4_hdmi_connector_detect_ctx(struct drm_connector *connector,
+@@ -440,6 +458,199 @@ static int vc4_hdmi_connector_detect_ctx(struct drm_connector *connector,
  	return status;
  }
  
 +/* The refresh rates, in mHz, of the modes added for VRR. */
 +static const unsigned int vc4_hdmi_vrr_rates[] = {
-+	23976, 24000, 25000, 29970, 30000, 47952, 48000, 50000, 59940,
++	23976, 24000, 25000, 29970, 30000, 47952, 48000, 50000, 59940, 60000,
 +};
++
++static enum drm_mode_status
++vc4_hdmi_connector_clock_valid(const struct drm_connector *connector,
++			       const struct drm_display_mode *mode,
++			       unsigned long long clock);
 +
 +static bool vc4_hdmi_vrr_mode_ok(const struct drm_display_mode *mode)
 +{
@@ -132,8 +137,9 @@ index 16f33d987..7a86244f6 100644
 +/*
 + * Find the VRR range of the sink and, for each size, add the modes of the
 + * refresh rates of vc4_hdmi_vrr_rates[] in that range that only differ
-+ * from the fastest mode of up to 60Hz of the size in their vertical front
-+ * porch: the sink switches between those without resynchronising.
++ * in their vertical front porch from the fastest mode of the size in the
++ * range that can be sent as 8-bit RGB: the sink switches between those
++ * without resynchronising.
 + */
 +static void vc4_hdmi_vrr_add_modes(struct vc4_hdmi *vc4_hdmi)
 +{
@@ -160,7 +166,10 @@ index 16f33d987..7a86244f6 100644
 +			unsigned int rate = vc4_hdmi_vrr_mode_rate(mode);
 +
 +			if (!vc4_hdmi_vrr_mode_ok(mode) || mode->hdisplay < 1280 ||
-+			    rate > 60000 || rate < min_rate * 1000 || rate > max_rate * 1000)
++			    rate < min_rate * 1000 || rate > max_rate * 1000 ||
++			    drm_mode_is_420_only(info, mode) ||
++			    vc4_hdmi_connector_clock_valid(connector, mode,
++							   (unsigned long long)mode->clock * 1000) != MODE_OK)
 +				continue;
 +
 +			for (j = 0; j < num_bases; j++)
@@ -266,7 +275,7 @@ index 16f33d987..7a86244f6 100644
  static int vc4_hdmi_connector_get_modes(struct drm_connector *connector)
  {
  	struct vc4_dev *vc4 = to_vc4_dev(connector->dev);
-@@ -447,6 +649,8 @@ static int vc4_hdmi_connector_get_modes(struct drm_connector *connector)
+@@ -447,6 +658,8 @@ static int vc4_hdmi_connector_get_modes(struct drm_connector *connector)
  
  	ret = drm_edid_connector_add_modes(connector);
  
@@ -275,7 +284,7 @@ index 16f33d987..7a86244f6 100644
  	if (!vc4->hvs->vc5_hdmi_enable_hdmi_20) {
  		struct drm_device *drm = connector->dev;
  		const struct drm_display_mode *mode;
-@@ -605,6 +809,10 @@ static int vc4_hdmi_connector_init(struct drm_device *dev,
+@@ -605,6 +818,10 @@ static int vc4_hdmi_connector_init(struct drm_device *dev,
  	if (ret)
  		return ret;
  
@@ -286,7 +295,7 @@ index 16f33d987..7a86244f6 100644
  	drm_connector_attach_encoder(connector, encoder);
  
  	return 0;
-@@ -796,9 +1004,32 @@ static int vc4_hdmi_write_hdr_drm_infoframe(struct drm_connector *connector,
+@@ -796,9 +1013,32 @@ static int vc4_hdmi_write_hdr_drm_infoframe(struct drm_connector *connector,
  					buffer, len);
  }
  
@@ -319,7 +328,7 @@ index 16f33d987..7a86244f6 100644
  	return vc4_hdmi_write_infoframe(connector, HDMI_INFOFRAME_TYPE_SPD,
  					buffer, len);
  }
-@@ -1347,7 +1578,8 @@ static void vc5_hdmi_set_timings(struct vc4_hdmi *vc4_hdmi,
+@@ -1347,7 +1587,8 @@ static void vc5_hdmi_set_timings(struct vc4_hdmi *vc4_hdmi,
  	u32 pixel_rep = (mode->flags & DRM_MODE_FLAG_DBLCLK) ? 2 : 1;
  	u32 verta = (VC4_SET_FIELD(mode->crtc_vsync_end - mode->crtc_vsync_start,
  				   VC5_HDMI_VERTA_VSP) |
@@ -329,7 +338,7 @@ index 16f33d987..7a86244f6 100644
  				   VC5_HDMI_VERTA_VFP) |
  		     VC4_SET_FIELD(mode->crtc_vdisplay, VC5_HDMI_VERTA_VAL));
  	u32 vertb = (VC4_SET_FIELD(mode->htotal >> (2 - pixel_rep),
-@@ -1722,6 +1954,84 @@ static void vc4_hdmi_encoder_atomic_mode_set(struct drm_encoder *encoder,
+@@ -1722,6 +1963,84 @@ static void vc4_hdmi_encoder_atomic_mode_set(struct drm_encoder *encoder,
  		      &crtc_state->adjusted_mode);
  	vc4_hdmi->output_bpc = conn_state->hdmi.output_bpc;
  	vc4_hdmi->output_format = conn_state->hdmi.output_format;
@@ -414,7 +423,7 @@ index 16f33d987..7a86244f6 100644
  	mutex_unlock(&vc4_hdmi->mutex);
  }
  
-@@ -3265,6 +3575,7 @@ static int vc4_hdmi_bind(struct device *dev, struct device *master, void *data)
+@@ -3265,6 +3584,7 @@ static int vc4_hdmi_bind(struct device *dev, struct device *master, void *data)
  		return ret;
  
  	spin_lock_init(&vc4_hdmi->hw_lock);
@@ -422,7 +431,7 @@ index 16f33d987..7a86244f6 100644
  	INIT_DELAYED_WORK(&vc4_hdmi->scrambling_work, vc4_hdmi_scrambling_wq);
  
  	dev_set_drvdata(dev, vc4_hdmi);
-@@ -3275,6 +3586,8 @@ static int vc4_hdmi_bind(struct device *dev, struct device *master, void *data)
+@@ -3275,6 +3595,8 @@ static int vc4_hdmi_bind(struct device *dev, struct device *master, void *data)
  	vc4_hdmi->encoder.post_crtc_enable = vc4_hdmi_encoder_post_crtc_enable;
  	vc4_hdmi->encoder.post_crtc_disable = vc4_hdmi_encoder_post_crtc_disable;
  	vc4_hdmi->encoder.post_crtc_powerdown = vc4_hdmi_encoder_post_crtc_powerdown;
@@ -432,7 +441,7 @@ index 16f33d987..7a86244f6 100644
  	vc4_hdmi->variant = variant;
  
 diff --git a/drivers/gpu/drm/vc4/vc4_hdmi.h b/drivers/gpu/drm/vc4/vc4_hdmi.h
-index 44e80f955..698ddbda9 100644
+index 44e80f955..c38b1c328 100644
 --- a/drivers/gpu/drm/vc4/vc4_hdmi.h
 +++ b/drivers/gpu/drm/vc4/vc4_hdmi.h
 @@ -191,6 +191,26 @@ struct vc4_hdmi {
@@ -441,8 +450,8 @@ index 44e80f955..698ddbda9 100644
  
 +	/**
 +	 * @vrr: Variable refresh rate (FreeSync). @lock protects what the
-+	 * EDID gives: @capable, the range, and @bases, the fastest mode of
-+	 * up to 60Hz of each size, which the modes of that size the sink can
++	 * EDID gives: @capable, the range, and @bases, the fastest mode in
++	 * the range of each size, which the modes of that size the sink can
 +	 * switch to without a modeset are derived from. @active and the
 +	 * range sent in the SPD infoframe are protected by @mutex.
 +	 */
