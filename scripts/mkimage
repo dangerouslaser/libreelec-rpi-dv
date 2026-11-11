@@ -222,6 +222,9 @@ EOF
   done
 
   mcopy "${RELEASE_DIR}/3rdparty/bootloader/config.txt" :: >"${SAVE_ERROR}" 2>&1 || show_error
+  if [ -f "${RELEASE_DIR}/3rdparty/bootloader/overclock.txt" ]; then
+    mcopy "${RELEASE_DIR}/3rdparty/bootloader/overclock.txt" :: >"${SAVE_ERROR}" 2>&1 || show_error
+  fi
   for distro in "${RELEASE_DIR}/3rdparty/bootloader/distroconfig"*.txt; do
     if [ -f "${distro}" ]; then
       mcopy "${distro}" ::/"${distro##*/}" >"${SAVE_ERROR}" 2>&1 || show_error

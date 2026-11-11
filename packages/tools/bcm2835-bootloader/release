@@ -17,6 +17,9 @@ cp -PR $INSTALL/usr/share/bootloader/overlays $RELEASE_DIR/3rdparty/bootloader/
 if [ -f $INSTALL/usr/share/bootloader/config.txt ]; then
   cp -PR $INSTALL/usr/share/bootloader/config.txt $RELEASE_DIR/3rdparty/bootloader/
 fi
+if [ -f $INSTALL/usr/share/bootloader/overclock.txt ]; then
+  cp -PR $INSTALL/usr/share/bootloader/overclock.txt $RELEASE_DIR/3rdparty/bootloader/
+fi
 for distro in "$INSTALL/usr/share/bootloader/distroconfig"*.txt; do
   if [ -f "${distro}" ]; then
     cp -PR "${distro}" $RELEASE_DIR/3rdparty/bootloader/

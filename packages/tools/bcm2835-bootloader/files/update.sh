@@ -56,6 +56,17 @@ for distro in "$SYSTEM_ROOT/usr/share/bootloader/distroconfig"*.txt; do
   fi
 done
 
+# Overclock settings: the user's, like config.txt. Add the file and its
+# include once; never overwrite either.
+if [ -f "$SYSTEM_ROOT/usr/share/bootloader/overclock.txt" ]; then
+  if [ ! -f $BOOT_ROOT/overclock.txt ]; then
+    cp -p "$SYSTEM_ROOT/usr/share/bootloader/overclock.txt" $BOOT_ROOT
+  fi
+  if ! grep -q "^[[:space:]]*include[[:space:]]\+overclock\.txt" $BOOT_ROOT/config.txt; then
+    printf "\n# CPU/GPU overclock settings (LibreELEC Settings > Overclocking)\n[all]\ninclude overclock.txt\n" >> $BOOT_ROOT/config.txt
+  fi
+fi
+
 # mount $BOOT_ROOT r/o
 sync
 mount -o remount,ro $BOOT_ROOT

@@ -1,0 +1,2 @@
+# pi-overclock: written by LibreELEC Settings > Overclocking.
+# Delete the lines below this comment to go back to stock.
