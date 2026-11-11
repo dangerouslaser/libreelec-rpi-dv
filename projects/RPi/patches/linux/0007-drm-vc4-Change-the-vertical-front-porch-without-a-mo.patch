@@ -1,0 +1,176 @@
+From c663abe050fb42f7484c4bf7493adf38bb901997 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 17:22:33 +0000
+Subject: [PATCH 7/8] drm/vc4: Change the vertical front porch without a
+ modeset for VRR
+
+A sink in variable refresh rate mode follows changes of the frame
+length, but a modeset makes it resynchronise, which blanks the picture
+for a second or more. The PixelValve takes a new vertical front porch
+from the next frame on while the timing runs.
+
+When the encoder agrees that the new mode only differs from the current
+one in its vertical front porch, and VRR is enabled, clear mode_changed
+and write the front porch of the new mode at flush. Encoders get a hook
+to update themselves then, and when VRR_ENABLED changes without a
+modeset.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ drivers/gpu/drm/vc4/vc4_crtc.c | 42 +++++++++++++++++++++++++++++++++-
+ drivers/gpu/drm/vc4/vc4_drv.h  | 17 ++++++++++++++
+ drivers/gpu/drm/vc4/vc4_kms.c  | 39 +++++++++++++++++++++++++++++++
+ 3 files changed, 97 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/vc4/vc4_crtc.c b/drivers/gpu/drm/vc4/vc4_crtc.c
+index c2a0dece4..32d27d75c 100644
+--- a/drivers/gpu/drm/vc4/vc4_crtc.c
++++ b/drivers/gpu/drm/vc4/vc4_crtc.c
+@@ -1190,11 +1190,51 @@ static const struct drm_crtc_funcs vc4_crtc_funcs = {
+ 	.late_register = vc4_crtc_late_register,
+ };
+ 
++static void vc4_crtc_set_vfp(struct drm_crtc *crtc,
++			     const struct drm_display_mode *mode)
++{
++	struct vc4_crtc *vc4_crtc = to_vc4_crtc(crtc);
++	int idx;
++
++	if (!drm_dev_enter(crtc->dev, &idx))
++		return;
++
++	CRTC_WRITE(PV_VERTB,
++		   VC4_SET_FIELD(mode->crtc_vsync_start - mode->crtc_vdisplay,
++				 PV_VERTB_VFP) |
++		   VC4_SET_FIELD(mode->crtc_vdisplay, PV_VERTB_VACTIVE));
++
++	drm_dev_exit(idx);
++}
++
++static void vc4_crtc_atomic_flush(struct drm_crtc *crtc,
++				  struct drm_atomic_commit *state)
++{
++	struct drm_crtc_state *old_state = drm_atomic_get_old_crtc_state(state, crtc);
++	struct drm_crtc_state *new_state = drm_atomic_get_new_crtc_state(state, crtc);
++	struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(new_state);
++
++	if (new_state->active && !drm_atomic_crtc_needs_modeset(new_state)) {
++		struct drm_encoder *encoder = vc4_get_crtc_encoder(crtc, new_state);
++		struct vc4_encoder *vc4_encoder = encoder ? to_vc4_encoder(encoder) : NULL;
++
++		if (vc4_state->vrr_timing_update)
++			vc4_crtc_set_vfp(crtc, &new_state->adjusted_mode);
++
++		if (vc4_encoder && vc4_encoder->vrr_update &&
++		    (vc4_state->vrr_timing_update ||
++		     old_state->vrr_enabled != new_state->vrr_enabled))
++			vc4_encoder->vrr_update(encoder, new_state);
++	}
++
++	vc4_hvs_atomic_flush(crtc, state);
++}
++
+ static const struct drm_crtc_helper_funcs vc4_crtc_helper_funcs = {
+ 	.mode_valid = vc4_crtc_mode_valid,
+ 	.atomic_check = vc4_crtc_atomic_check,
+ 	.atomic_begin = vc4_hvs_atomic_begin,
+-	.atomic_flush = vc4_hvs_atomic_flush,
++	.atomic_flush = vc4_crtc_atomic_flush,
+ 	.atomic_enable = vc4_crtc_atomic_enable,
+ 	.atomic_disable = vc4_crtc_atomic_disable,
+ 	.get_scanout_position = vc4_crtc_get_scanout_position,
+diff --git a/drivers/gpu/drm/vc4/vc4_drv.h b/drivers/gpu/drm/vc4/vc4_drv.h
+index 9ff284221..bca0b2182 100644
+--- a/drivers/gpu/drm/vc4/vc4_drv.h
++++ b/drivers/gpu/drm/vc4/vc4_drv.h
+@@ -531,6 +531,17 @@ struct vc4_encoder {
+ 	void (*post_crtc_disable)(struct drm_encoder *encoder, struct drm_atomic_commit *state);
+ 	void (*post_crtc_powerdown)(struct drm_encoder *encoder, struct drm_atomic_commit *state);
+ 	void (*vblank)(struct drm_encoder *encoder);
++
++	/*
++	 * Variable refresh rate: whether the new mode of @crtc can replace
++	 * the current one without a modeset, and the update of the encoder
++	 * when that happens or VRR_ENABLED changes without a modeset.
++	 */
++	bool (*vrr_seamless)(struct drm_encoder *encoder,
++			     struct drm_atomic_commit *state,
++			     struct drm_crtc *crtc);
++	void (*vrr_update)(struct drm_encoder *encoder,
++			   const struct drm_crtc_state *crtc_state);
+ };
+ 
+ #define to_vc4_encoder(_encoder)				\
+@@ -687,6 +698,12 @@ struct vc4_crtc_state {
+ 
+ 	/* Transitional state below, only valid during atomic commits */
+ 	bool update_muxing;
++
++	/*
++	 * The mode changed only in its vertical front porch and is applied
++	 * without a modeset, see vc4_vrr_atomic_check().
++	 */
++	bool vrr_timing_update;
+ };
+ 
+ #define VC4_HVS_CHANNEL_DISABLED ((unsigned int)-1)
+diff --git a/drivers/gpu/drm/vc4/vc4_kms.c b/drivers/gpu/drm/vc4/vc4_kms.c
+index 18ebeba91..a984cade4 100644
+--- a/drivers/gpu/drm/vc4/vc4_kms.c
++++ b/drivers/gpu/drm/vc4/vc4_kms.c
+@@ -1157,6 +1157,43 @@ vc4_core_clock_atomic_check(struct drm_atomic_commit *state)
+ }
+ 
+ 
++/*
++ * With VRR, a mode that differs from the current one only in its vertical
++ * front porch is set by changing the front porch of the running timing
++ * instead of a modeset, so that the sink doesn't resynchronise.
++ */
++static void vc4_vrr_atomic_check(struct drm_atomic_commit *state)
++{
++	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
++	struct drm_crtc *crtc;
++	int i;
++
++	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
++		struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(new_crtc_state);
++		struct vc4_encoder *vc4_encoder;
++		struct drm_encoder *encoder;
++
++		vc4_state->vrr_timing_update = false;
++
++		if (!new_crtc_state->mode_changed || new_crtc_state->active_changed ||
++		    new_crtc_state->connectors_changed ||
++		    !old_crtc_state->active || !new_crtc_state->active)
++			continue;
++
++		encoder = vc4_get_crtc_encoder(crtc, new_crtc_state);
++		if (!encoder)
++			continue;
++
++		vc4_encoder = to_vc4_encoder(encoder);
++		if (!vc4_encoder->vrr_seamless ||
++		    !vc4_encoder->vrr_seamless(encoder, state, crtc))
++			continue;
++
++		new_crtc_state->mode_changed = false;
++		vc4_state->vrr_timing_update = true;
++	}
++}
++
+ static int
+ vc4_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
+ {
+@@ -1174,6 +1211,8 @@ vc4_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
+ 	if (ret)
+ 		return ret;
+ 
++	vc4_vrr_atomic_check(state);
++
+ 	ret = vc4_load_tracker_atomic_check(state);
+ 	if (ret)
+ 		return ret;
+-- 
+2.47.3
+

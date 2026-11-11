@@ -1,0 +1,236 @@
+From 49a966a8e347ff250d1e10b8385109a1c01fb9be Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 12:38:20 -0500
+Subject: [PATCH] [GBM] Switch refresh rates seamlessly with variable refresh
+ rate
+
+A display driven with variable refresh rate (FreeSync) switches between
+modes that only differ in their vertical front porch without
+resynchronising, so changing the refresh rate for playback no longer
+blanks the picture. The kernel reports such a connector as vrr_capable
+and, on the Raspberry Pi, adds those modes for the common video rates.
+
+When the connector is vrr_capable, set VRR_ENABLED on the CRTC with the
+mode, flag the modes that have such a sibling with D3DPRESENTFLAG_VRR,
+and let the refresh rate matcher prefer a flagged mode of a whitelisted
+size at the frame rate or twice it before the standard search.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ xbmc/windowing/GraphicContext.h      |  3 ++
+ xbmc/windowing/Resolution.cpp        | 64 ++++++++++++++++++++++++++++
+ xbmc/windowing/gbm/drm/DRMAtomic.cpp |  3 ++
+ xbmc/windowing/gbm/drm/DRMUtils.cpp  | 43 +++++++++++++++++++
+ xbmc/windowing/gbm/drm/DRMUtils.h    |  4 ++
+ 5 files changed, 117 insertions(+)
+
+diff --git a/xbmc/windowing/GraphicContext.h b/xbmc/windowing/GraphicContext.h
+index 84f99c671..1cfe7290a 100644
+--- a/xbmc/windowing/GraphicContext.h
++++ b/xbmc/windowing/GraphicContext.h
+@@ -25,6 +25,9 @@
+ #define D3DPRESENTFLAG_PROGRESSIVE  4
+ #define D3DPRESENTFLAG_MODE3DSBS    8
+ #define D3DPRESENTFLAG_MODE3DTB    16
++// The display switches between the modes with this flag without resynchronising
++// (variable refresh rate). Not a mode-setting flag.
++#define D3DPRESENTFLAG_VRR         32
+ 
+ /* what types are important for mode setting */
+ #define D3DPRESENTFLAG_MODEMASK ( D3DPRESENTFLAG_INTERLACED \
+diff --git a/xbmc/windowing/Resolution.cpp b/xbmc/windowing/Resolution.cpp
+index 2020a93f9..64adfdc72 100644
+--- a/xbmc/windowing/Resolution.cpp
++++ b/xbmc/windowing/Resolution.cpp
+@@ -84,6 +84,67 @@ const RESOLUTION_INFO& NativeModeInfo(const CVariant& mode)
+   return displaySettings.GetResolutionInfo(displaySettings.GetResFromString(mode.asString()));
+ }
+ 
++//! @brief Pick a variable refresh rate mode for the frame rate, or twice it, of a size
++//!        the whitelist allows that fits the video. The display switches between those
++//!        modes without resynchronising. They are matched as resolutions: their whitelist
++//!        string can be the same as that of an ordinary mode of the same rate.
++bool FindVrrResolution(const std::vector<CVariant>& indexList,
++                       int width,
++                       int height,
++                       float fps,
++                       const RESOLUTION_INFO& curr,
++                       uint32_t modeMask,
++                       RESOLUTION& resolution)
++{
++  std::vector<RESOLUTION> candidates;
++  CServiceBroker::GetWinSystem()->GetGfxContext().GetAllowedResolutions(candidates);
++
++  for (const float rate : {fps, fps * 2})
++  {
++    RESOLUTION best = RES_INVALID;
++    unsigned int penalty = std::numeric_limits<unsigned int>::max();
++
++    for (const RESOLUTION c : candidates)
++    {
++      const RESOLUTION_INFO& native = CDisplaySettings::GetInstance().GetResolutionInfo(c);
++      if (!(native.dwFlags & D3DPRESENTFLAG_VRR) ||
++          !MathUtils::FloatEquals(native.fRefreshRate, rate, 0.01f) ||
++          native.iScreenWidth + 8 < width || native.iScreenHeight + 32 < height)
++        continue;
++
++      if (std::ranges::none_of(indexList,
++                               [&native](const CVariant& mode)
++                               {
++                                 const RESOLUTION_INFO& allowed = NativeModeInfo(mode);
++                                 return allowed.iScreenWidth == native.iScreenWidth &&
++                                        allowed.iScreenHeight == native.iScreenHeight;
++                               }))
++        continue;
++
++      const RESOLUTION_INFO info = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo(c);
++      if ((info.dwFlags & modeMask) != (curr.dwFlags & modeMask))
++        continue;
++
++      const unsigned int pen = abs(info.iScreenHeight - height) + abs(info.iScreenWidth - width);
++      if (pen < penalty)
++      {
++        best = c;
++        penalty = pen;
++      }
++    }
++
++    if (best != RES_INVALID)
++    {
++      resolution = best;
++      CLog::Log(LOGDEBUG, "[WHITELIST] Matched a variable refresh rate mode {} ({})",
++                CDisplaySettings::GetInstance().GetResolutionInfo(best).strMode, best);
++      return true;
++    }
++  }
++
++  return false;
++}
++
+ //! @brief The 2D timing a mode carries. A half 3D mode transmits one eye inside an
+ //!        ordinary frame, so its geometry is already the 2D one. Frame packing sends
+ //!        both eyes plus an active space gap, so divide those out - only a
+@@ -621,6 +682,9 @@ void CResolutionUtils::FindResolutionFromWhitelist(float fps,
+     CLog::Log(LOGDEBUG, "[WHITELIST] No native 3D mode matched, continuing the standard search");
+   }
+ 
++  if (wants2D && FindVrrResolution(indexList, width, height, fps, curr, modeMask, resolution))
++    return;
++
+   CLog::Log(LOGDEBUG, "[WHITELIST] Searching for an exact resolution with an exact refresh rate");
+ 
+   unsigned int penalty = std::numeric_limits<unsigned int>::max();
+diff --git a/xbmc/windowing/gbm/drm/DRMAtomic.cpp b/xbmc/windowing/gbm/drm/DRMAtomic.cpp
+index 727e5f5aa..22cbc9cfd 100644
+--- a/xbmc/windowing/gbm/drm/DRMAtomic.cpp
++++ b/xbmc/windowing/gbm/drm/DRMAtomic.cpp
+@@ -92,6 +92,9 @@ void CDRMAtomic::DrmAtomicCommit(int fb_id, int flags, bool rendered, bool video
+ 
+     if (!AddProperty(m_crtc, "ACTIVE", m_active ? 1 : 0))
+       return;
++
++    if (m_vrr)
++      AddProperty(m_crtc, "VRR_ENABLED", 1);
+   }
+ 
+   // In Direct-To-Plane (dual plane) mode m_gui_plane is the output
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.cpp b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+index 5eb502bc4..625032c3d 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.cpp
++++ b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+@@ -638,6 +638,11 @@ bool CDRMUtils::InitDrm()
+   if (!FindPreferredMode())
+     return false;
+ 
++  m_vrr = m_connector->GetPropertyValue("vrr_capable").value_or(0) == 1 &&
++          m_crtc->SupportsProperty("VRR_ENABLED");
++  if (m_vrr)
++    CLog::LogF(LOGINFO, "Variable refresh rate supported by {}", m_connector->GetName());
++
+   ret = drmSetMaster(m_fd);
+   if (ret < 0)
+   {
+@@ -871,6 +876,42 @@ CDRMUtils::CommitState CDRMUtils::GetCommitState(uint64_t sequence)
+   return ret > 0 ? CommitState::COMPLETE : CommitState::PENDING;
+ }
+ 
++namespace
++{
++bool IsProgressive2D(const drmModeModeInfo& mode)
++{
++  return !(mode.flags & (DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLSCAN | DRM_MODE_FLAG_DBLCLK |
++                         DRM_MODE_FLAG_3D_MASK));
++}
++
++//! Whether the modes only differ in their vertical front porch.
++bool SameTimingButFrontPorch(const drmModeModeInfo& a, const drmModeModeInfo& b)
++{
++  return a.clock == b.clock && a.hdisplay == b.hdisplay && a.hsync_start == b.hsync_start &&
++         a.hsync_end == b.hsync_end && a.htotal == b.htotal && a.hskew == b.hskew &&
++         a.vdisplay == b.vdisplay && a.vsync_end - a.vsync_start == b.vsync_end - b.vsync_start &&
++         a.vtotal - a.vsync_end == b.vtotal - b.vsync_end && a.vscan == b.vscan &&
++         a.flags == b.flags;
++}
++} // namespace
++
++//! With variable refresh rate, the driver switches between the modes of a size that only
++//! differ in their vertical front porch without a modeset.
++bool CDRMUtils::IsVrrMode(const drmModeModeInfo& mode) const
++{
++  if (!m_vrr || !IsProgressive2D(mode))
++    return false;
++
++  for (int i = 0; i < m_connector->GetModesCount(); i++)
++  {
++    const drmModeModeInfo* other = m_connector->GetModeForIndex(i);
++    if (other->vtotal != mode.vtotal && SameTimingButFrontPorch(*other, mode))
++      return true;
++  }
++
++  return false;
++}
++
+ RESOLUTION_INFO CDRMUtils::GetResolutionInfo(drmModeModeInfoPtr mode)
+ {
+   RESOLUTION_INFO res;
+@@ -938,6 +979,8 @@ RESOLUTION_INFO CDRMUtils::GetResolutionInfo(drmModeModeInfoPtr mode)
+ 
+   res.dwFlags = mode->flags & DRM_MODE_FLAG_INTERLACE ? D3DPRESENTFLAG_INTERLACED
+                                                       : D3DPRESENTFLAG_PROGRESSIVE;
++  if (IsVrrMode(*mode))
++    res.dwFlags |= D3DPRESENTFLAG_VRR;
+ 
+   // The 3D layout is a masked enum, not independent bits (TOP_AND_BOTTOM is
+   // 7<<14 and shares bit 14 with FRAME_PACKING 1<<14), so match the whole field.
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.h b/xbmc/windowing/gbm/drm/DRMUtils.h
+index a9c08057b..34c486599 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.h
++++ b/xbmc/windowing/gbm/drm/DRMUtils.h
+@@ -87,6 +87,7 @@ public:
+   bool FindSecondVideoPlane(uint32_t format, uint64_t modifier, uint64_t width, uint64_t height);
+ 
+   bool HasQuirk(int quirk) const { return m_drm_quirks & quirk; }
++  bool SupportsVrr() const { return m_vrr; }
+ 
+   std::vector<std::string> GetConnectedConnectorNames();
+ 
+@@ -141,6 +142,8 @@ protected:
+   CDRMPlane* m_video_plane2{nullptr};
+   CDRMPlane* m_gui_plane{nullptr};
+   drmModeModeInfo* m_mode = nullptr;
++  //! The driver drives the connector with variable refresh rate once VRR_ENABLED is set.
++  bool m_vrr{false};
+ 
+   int m_width = 0;
+   int m_height = 0;
+@@ -161,6 +164,7 @@ private:
+   bool FindPreferredMode();
+   bool RestoreOriginalMode();
+   RESOLUTION_INFO GetResolutionInfo(drmModeModeInfoPtr mode);
++  bool IsVrrMode(const drmModeModeInfo& mode) const;
+   void PrintDrmDeviceInfo(drmDevicePtr device);
+ 
+   int m_renderFd{-1};
+-- 
+2.50.1 (Apple Git-155)
+

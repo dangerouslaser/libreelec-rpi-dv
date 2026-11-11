@@ -1,4 +1,4 @@
-From c50b969d2734ef0b4526bda780a7394626ae6c64 Mon Sep 17 00:00:00 2001
+From 95e40f5db94f89df86bced34e961de929493d7a4 Mon Sep 17 00:00:00 2001
 From: Bryan Hoban <bryan.hoban@gmail.com>
 Date: Tue, 10 Nov 2026 20:34:59 -0500
 Subject: [PATCH] [settings] Add Dolby Vision defaults to Player / Videos
@@ -28,10 +28,10 @@ Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
  8 files changed, 198 insertions(+), 24 deletions(-)
 
 diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
-index 6b0e8e279..56f923b64 100644
+index acadf0ae9..146356fa7 100644
 --- a/addons/resource.language.en_gb/resources/strings.po
 +++ b/addons/resource.language.en_gb/resources/strings.po
-@@ -23270,7 +23270,37 @@ msgctxt "#36658"
+@@ -23282,7 +23282,37 @@ msgctxt "#36658"
  msgid "Dolby VSIF"
  msgstr ""
  

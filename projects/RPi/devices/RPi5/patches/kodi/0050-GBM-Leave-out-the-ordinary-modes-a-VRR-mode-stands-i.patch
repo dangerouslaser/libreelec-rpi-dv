@@ -1,0 +1,98 @@
+From 4bd340c5a617c0b81c8196d072b32b3530d419a6 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 15:31:55 -0500
+Subject: [PATCH] [GBM] Leave out the ordinary modes a VRR mode stands in for
+
+A display lists its own modes next to the variable refresh rate ones,
+often at the same size and rate: 3840x2160 at 59.94 Hz with a 593.4 MHz
+clock beside the 59.95 Hz VRR mode on the 594 MHz timing. A desktop or
+a playback rate that matched the ordinary mode made the refresh rate
+change a full mode change, which blanks the display.
+
+While VRR is in use, leave out of the mode list an ordinary progressive
+mode for which a VRR mode of the same size is within the refresh rate
+matching tolerance. Turning VRR off brings them back.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ xbmc/windowing/gbm/drm/DRMUtils.cpp | 30 +++++++++++++++++++++++++++++
+ xbmc/windowing/gbm/drm/DRMUtils.h   |  1 +
+ 2 files changed, 31 insertions(+)
+
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.cpp b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+index 44e38fd66..09fc97118 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.cpp
++++ b/xbmc/windowing/gbm/drm/DRMUtils.cpp
+@@ -18,6 +18,7 @@
+ #include "windowing/WinSystem.h"
+ 
+ #include <algorithm>
++#include <cmath>
+ 
+ #include <poll.h>
+ 
+@@ -885,6 +886,11 @@ bool IsProgressive2D(const drmModeModeInfo& mode)
+                          DRM_MODE_FLAG_3D_MASK));
+ }
+ 
++double ProgressiveRate(const drmModeModeInfo& mode)
++{
++  return mode.clock * 1000.0 / (static_cast<double>(mode.htotal) * mode.vtotal);
++}
++
+ //! Whether the modes only differ in their vertical front porch.
+ bool SameTimingButFrontPorch(const drmModeModeInfo& a, const drmModeModeInfo& b)
+ {
+@@ -923,6 +929,25 @@ bool CDRMUtils::IsVrrMode(const drmModeModeInfo& mode) const
+   return false;
+ }
+ 
++//! An ordinary mode that a VRR mode of the same size and refresh rate (within the
++//! tolerance of the refresh rate matching) stands in for.
++bool CDRMUtils::IsReplacedByVrrMode(const drmModeModeInfo& mode) const
++{
++  if (!UseVrr() || !IsProgressive2D(mode) || !mode.htotal || !mode.vtotal || IsVrrMode(mode))
++    return false;
++
++  const double rate = ProgressiveRate(mode);
++  for (int i = 0; i < m_connector->GetModesCount(); i++)
++  {
++    const drmModeModeInfo* other = m_connector->GetModeForIndex(i);
++    if (other->hdisplay == mode.hdisplay && other->vdisplay == mode.vdisplay &&
++        std::abs(ProgressiveRate(*other) - rate) < 0.01 && IsVrrMode(*other))
++      return true;
++  }
++
++  return false;
++}
++
+ RESOLUTION_INFO CDRMUtils::GetResolutionInfo(drmModeModeInfoPtr mode)
+ {
+   RESOLUTION_INFO res;
+@@ -1045,6 +1070,11 @@ std::vector<RESOLUTION_INFO> CDRMUtils::GetModes()
+         (mode->flags & DRM_MODE_FLAG_INTERLACE))
+       continue;
+ 
++    // With VRR, offering the ordinary mode next to the one the display switches to
++    // without resynchronising would let a refresh rate change pick a full mode change.
++    if (IsReplacedByVrrMode(*mode))
++      continue;
++
+     RESOLUTION_INFO res = GetResolutionInfo(mode);
+     res.strId = std::to_string(i);
+     resolutions.push_back(res);
+diff --git a/xbmc/windowing/gbm/drm/DRMUtils.h b/xbmc/windowing/gbm/drm/DRMUtils.h
+index ee7c310be..0a41b0484 100644
+--- a/xbmc/windowing/gbm/drm/DRMUtils.h
++++ b/xbmc/windowing/gbm/drm/DRMUtils.h
+@@ -170,6 +170,7 @@ private:
+   bool RestoreOriginalMode();
+   RESOLUTION_INFO GetResolutionInfo(drmModeModeInfoPtr mode);
+   bool IsVrrMode(const drmModeModeInfo& mode) const;
++  bool IsReplacedByVrrMode(const drmModeModeInfo& mode) const;
+   void PrintDrmDeviceInfo(drmDevicePtr device);
+ 
+   int m_renderFd{-1};
+-- 
+2.50.1 (Apple Git-155)
+

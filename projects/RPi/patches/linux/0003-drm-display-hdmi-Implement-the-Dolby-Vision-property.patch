@@ -1,4 +1,4 @@
-From 30c717ef79066fbacf7863a8066e88ba93468701 Mon Sep 17 00:00:00 2001
+From 7536ecca6bd0ffd4c5645eb4bfcd5acb8c842a63 Mon Sep 17 00:00:00 2001
 From: Bryan Hoban <bryan.hoban@gmail.com>
 Date: Sat, 7 Nov 2026 15:28:45 +0000
 Subject: [PATCH 3/5] drm/display: hdmi: Implement the "Dolby Vision" property
@@ -27,22 +27,22 @@ vendor slot when has_hdmi_infoframe is false. Without Dolby Vision
 nothing changes: with has_hdmi_infoframe false, neither the old nor the
 new state has a vendor infoframe, so there is nothing to write or clear.
 ---
- .../gpu/drm/display/drm_hdmi_state_helper.c   | 123 ++++++++++++++++--
- 1 file changed, 111 insertions(+), 12 deletions(-)
+ .../gpu/drm/display/drm_hdmi_state_helper.c   | 125 ++++++++++++++++--
+ 1 file changed, 112 insertions(+), 13 deletions(-)
 
 diff --git a/drivers/gpu/drm/display/drm_hdmi_state_helper.c b/drivers/gpu/drm/display/drm_hdmi_state_helper.c
-index 481f7ddab..13e832c93 100644
+index 1440a10ab..2750e2d85 100644
 --- a/drivers/gpu/drm/display/drm_hdmi_state_helper.c
 +++ b/drivers/gpu/drm/display/drm_hdmi_state_helper.c
-@@ -323,6 +323,7 @@ void __drm_atomic_helper_connector_hdmi_reset(struct drm_connector *connector,
+@@ -326,6 +326,7 @@ void __drm_atomic_helper_connector_hdmi_state_init(struct drm_connector *connect
  	new_conn_state->max_bpc = max_bpc;
  	new_conn_state->max_requested_bpc = 8;
  	new_conn_state->hdmi.broadcast_rgb = DRM_HDMI_BROADCAST_RGB_AUTO;
 +	new_conn_state->hdmi.dolby_vision = DRM_HDMI_DOLBY_VISION_OFF;
  }
- EXPORT_SYMBOL(__drm_atomic_helper_connector_hdmi_reset);
+ EXPORT_SYMBOL(__drm_atomic_helper_connector_hdmi_state_init);
  
-@@ -685,6 +686,63 @@ hdmi_compute_config(const struct drm_connector *connector,
+@@ -743,6 +744,63 @@ hdmi_compute_config(const struct drm_connector *connector,
  	return ret;
  }
  
@@ -66,8 +66,8 @@ index 481f7ddab..13e832c93 100644
 +		return -EINVAL;
 +	}
 +
-+	if (conn_state->hdmi.output_format != HDMI_COLORSPACE_RGB) {
-+		enum hdmi_colorspace format = conn_state->hdmi.output_format;
++	if (conn_state->hdmi.output_format != DRM_OUTPUT_COLOR_FORMAT_RGB444) {
++		enum drm_output_color_format format = conn_state->hdmi.output_format;
 +
 +		drm_dbg_kms(dev, "Dolby Vision needs RGB output, not %s.\n",
 +			    drm_hdmi_connector_get_output_format_name(format));
@@ -106,7 +106,7 @@ index 481f7ddab..13e832c93 100644
  static int hdmi_generate_avi_infoframe(const struct drm_connector *connector,
  				       struct drm_connector_state *conn_state)
  {
-@@ -705,6 +763,20 @@ static int hdmi_generate_avi_infoframe(const struct drm_connector *connector,
+@@ -763,6 +821,20 @@ static int hdmi_generate_avi_infoframe(const struct drm_connector *connector,
  	if (ret)
  		return ret;
  
@@ -124,10 +124,10 @@ index 481f7ddab..13e832c93 100644
 +			frame->video_code = drm_match_cea_mode(mode);
 +	}
 +
- 	frame->colorspace = conn_state->hdmi.output_format;
- 
- 	/*
-@@ -785,12 +857,36 @@ static int hdmi_generate_hdmi_vendor_infoframe(const struct drm_connector *conne
+ 	frame->colorspace =
+ 		output_color_format_to_hdmi_colorspace(connector,
+ 						       conn_state->hdmi.output_format);
+@@ -851,12 +923,36 @@ static int hdmi_generate_hdmi_vendor_infoframe(const struct drm_connector *conne
  
  	infoframe->set = false;
  
@@ -169,7 +169,7 @@ index 481f7ddab..13e832c93 100644
  
  	infoframe->set = true;
  
-@@ -863,11 +959,16 @@ int drm_atomic_helper_connector_hdmi_check(struct drm_connector *connector,
+@@ -929,11 +1025,16 @@ int drm_atomic_helper_connector_hdmi_check(struct drm_connector *connector,
  
  	new_conn_state->hdmi.is_limited_range = hdmi_is_limited_range(connector, new_conn_state);
  
@@ -186,18 +186,20 @@ index 481f7ddab..13e832c93 100644
  	    old_conn_state->hdmi.output_bpc != new_conn_state->hdmi.output_bpc ||
  	    old_conn_state->hdmi.output_format != new_conn_state->hdmi.output_format) {
  		struct drm_crtc *crtc = new_conn_state->crtc;
-@@ -1046,13 +1147,11 @@ int drm_atomic_helper_connector_hdmi_update_infoframes(struct drm_connector *con
+@@ -1268,14 +1369,12 @@ int drm_atomic_helper_connector_hdmi_update_infoframes(struct drm_connector *con
  	if (ret)
  		goto out;
  
 -	if (info->has_hdmi_infoframe) {
 -		ret = write_or_clear_infoframe(connector,
+-					       &funcs->hdmi, "HDMI-VS",
 -					       &old_conn_state->hdmi.infoframes.hdmi,
 -					       &new_conn_state->hdmi.infoframes.hdmi);
 -		if (ret)
 -			goto out;
 -	}
 +	ret = write_or_clear_infoframe(connector,
++				       &funcs->hdmi, "HDMI-VS",
 +				       &old_conn_state->hdmi.infoframes.hdmi,
 +				       &new_conn_state->hdmi.infoframes.hdmi);
 +	if (ret)
@@ -205,3 +207,6 @@ index 481f7ddab..13e832c93 100644
  
  out:
  	mutex_unlock(&connector->hdmi.infoframes.lock);
+-- 
+2.47.3
+

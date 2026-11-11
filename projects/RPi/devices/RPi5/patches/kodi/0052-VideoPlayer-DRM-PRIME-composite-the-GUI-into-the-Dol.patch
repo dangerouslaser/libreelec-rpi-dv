@@ -532,10 +532,10 @@ index 4c5f70feb..8fbf1669b 100644
 +  std::vector<CRect> m_renderedRegions;
  };
 diff --git a/xbmc/windowing/WinSystem.h b/xbmc/windowing/WinSystem.h
-index 477632da4..9186ff16c 100644
+index 6a6dea8fd..1bc3218eb 100644
 --- a/xbmc/windowing/WinSystem.h
 +++ b/xbmc/windowing/WinSystem.h
-@@ -281,6 +281,10 @@ public:
+@@ -284,6 +284,10 @@ public:
    // alpha blend (see CGUIFontTTFGLES::FirstBegin).
    virtual bool IsHdrComposite() const { return false; }
  
@@ -547,10 +547,10 @@ index 477632da4..9186ff16c 100644
     * \brief Gets debug info from video renderer for use in "Debug Info OSD" (Alt + O)
     *
 diff --git a/xbmc/windowing/gbm/WinSystemGbm.h b/xbmc/windowing/gbm/WinSystemGbm.h
-index 39931d90a..4621803e6 100644
+index 9da1d8be3..024d087e8 100644
 --- a/xbmc/windowing/gbm/WinSystemGbm.h
 +++ b/xbmc/windowing/gbm/WinSystemGbm.h
-@@ -89,6 +89,19 @@ public:
+@@ -93,6 +93,19 @@ public:
    //! \brief The infoframe the sink's EDID suggests: Dolby's for a version 2 data block
    DolbyVisionOutput GetDolbyVisionDefaultOutput() const;
  

@@ -1,0 +1,60 @@
+From 0e043fb68ac2d23e024fb9fe273f75859814d784 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Tue, 10 Nov 2026 16:12:16 +0000
+Subject: [PATCH 6/6] ASoC: soc-core: Start the runtime component count at zero
+
+Since commit 4dd10fbbeb9c ("treewide: Convert devm_kmalloc() family to
+the devm_kmalloc_obj() family"), soc_new_pcm_runtime() allocates the
+runtime with devm_kzalloc_flex(). When the compiler has
+__builtin_counted_by_ref() (GCC 16, for example), that sets
+num_components, the __counted_by() counter of components[], to the size
+of the array.
+
+snd_soc_rtd_add_component() then appends after those empty slots, and
+for_each_rtd_components() stops at the first, empty, one, so no
+component of the link is probed. Binding the card then dereferences the
+unset card of a component's DAPM context:
+
+  Unable to handle kernel NULL pointer dereference at virtual address 0000000000000060
+  pc : mutex_lock+0x14/0x68
+  lr : snd_soc_dapm_add_routes+0x34/0xa8
+  Call trace:
+   mutex_lock+0x14/0x68 (P)
+   hdmi_dai_probe+0xb0/0x1e0
+   snd_soc_pcm_dai_probe+0x70/0x100
+   snd_soc_bind_card+0x5e0/0xc30
+   ...
+   vc4_hdmi_bind+0x6d8/0x908
+
+Seen on a Raspberry Pi 5 with a kernel built by GCC 16.2. Set the count
+back to zero after the allocation: the components are counted as they
+are added.
+
+Fixes: 4dd10fbbeb9c ("treewide: Convert devm_kmalloc() family to the devm_kmalloc_obj() family")
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ sound/soc/soc-core.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/sound/soc/soc-core.c b/sound/soc/soc-core.c
+index fdfd48878..bb67c1461 100644
+--- a/sound/soc/soc-core.c
++++ b/sound/soc/soc-core.c
+@@ -388,6 +388,14 @@ static struct snd_soc_pcm_runtime *soc_new_pcm_runtime(
+ 		return NULL;
+ 	}
+ 
++	/*
++	 * devm_kzalloc_flex() sets num_components to the size of the array
++	 * when the compiler has __builtin_counted_by_ref(), but the array is
++	 * empty: snd_soc_rtd_add_component() counts the components as it adds
++	 * them.
++	 */
++	rtd->num_components = 0;
++
+ 	rtd->dev = dev;
+ 	INIT_LIST_HEAD(&rtd->list);
+ 	for_each_pcm_streams(stream) {
+-- 
+2.47.3
+
