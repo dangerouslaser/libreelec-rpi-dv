@@ -189,6 +189,22 @@
               "subpath": "v0.5.0-beta.6",
               "timestamp": "2026-11-11 10:56:25"
             }
+          },
+          "6": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-dv-0.5.0-beta.7.tar",
+              "sha256": "18faa757942308ab5816f59815089afd24e5ed6f200fd3d3f877710e74407518",
+              "size": "192686080",
+              "subpath": "v0.5.0-beta.7",
+              "timestamp": "2026-11-11 18:09:59"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-dv-0.5.0-beta.7.img.gz",
+              "sha256": "2dfa70610351c56fccac3350d5b406a362789c6219034e556b6fb23aedb99133",
+              "size": "189921625",
+              "subpath": "v0.5.0-beta.7",
+              "timestamp": "2026-11-11 18:09:59"
+            }
           }
         }
       }
