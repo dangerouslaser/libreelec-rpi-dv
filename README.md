@@ -27,6 +27,7 @@ What this tree adds to LibreELEC.tv:
 | Kodi: the Dolby Vision options as settings in Player / Videos, which every video starts with | `projects/RPi/devices/RPi5/patches/kodi/0051` |
 | Kodi: the GUI (OSD, menus) composited into the Dolby Vision signal, as the subtitles are, in the areas it covers | `projects/RPi/devices/RPi5/patches/kodi/0052` |
 | Kodi: Player information in Input, Processing and Output columns: the stream, its Dolby Vision configuration and RPU metadata, what the engine does with it and its GPU time, and the signal sent | `projects/RPi/devices/RPi5/patches/kodi/0054` |
+| Kodi: Dolby Vision settings that add CM v4.0 metadata to a video with only CM v2.9 metadata (Off, Without L2 trims only, Always, Auto, Auto 2) and remove its L2 trims, as the x86 build's do | `projects/RPi/devices/RPi5/patches/kodi/0055` |
 | LibreELEC's update menu offers this repository's releases, from `releases.json` on `main`, instead of LibreELEC's | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
