@@ -56,8 +56,8 @@ STOCK = {'arm_freq': 2400, 'over_voltage_delta': 0, 'v3d_freq': 1150}
 PRESETS = [
     {'id': 'stock', 'settings': {}},
     {'id': 'mild', 'settings': {'arm_freq': 2600}},
-    {'id': 'moderate', 'settings': {'arm_freq': 2800, 'over_voltage_delta': 25000}},
-    {'id': 'high', 'settings': {'arm_freq': 3000, 'over_voltage_delta': 50000, 'v3d_freq': 1250}},
+    {'id': 'moderate', 'settings': {'arm_freq': 2800}},
+    {'id': 'high', 'settings': {'arm_freq': 3000, 'v3d_freq': 1250}},
 ]
 MILD = PRESETS[1]['settings']
 
@@ -371,6 +371,52 @@ def get_config(key):
     return int(m.group(1)) if m else None
 
 
+# The bootloader's SDRAM tuning (SDRAM_BANKLOW: a parameter since 2024-09-23, on
+# by default since 2024-12-07) and the NUMA emulation its firmware then asks the
+# kernel for. Nothing here sets them: they are the bootloader's defaults.
+BANKLOW_SINCE = (2024, 9, 23)
+BANKLOW_DEFAULT_SINCE = (2024, 12, 7)
+
+
+def memory_tuning():
+    m = re.match(r'(\d{4})/(\d\d)/(\d\d)', vcgencmd('bootloader_version'))
+    date = tuple(int(x) for x in m.groups()) if m else None
+    m = re.search(r'^\s*SDRAM_BANKLOW\s*=\s*(\d+)', vcgencmd('bootloader_config'), re.M)
+    configured = int(m.group(1)) if m else None
+    if not date:
+        banklow = None
+    elif date < BANKLOW_SINCE:
+        banklow = 0
+    elif configured is not None:
+        banklow = configured
+    else:
+        banklow = 1 if date >= BANKLOW_DEFAULT_SINCE else 0
+    try:
+        nodes = len([n for n in os.listdir('/sys/devices/system/node') if re.fullmatch(r'node\d+', n)])
+    except OSError:
+        nodes = 0
+    return {'bootloader': '%04d-%02d-%02d' % date if date else None, 'banklow': banklow,
+            'banklow_configured': configured is not None and bool(date) and date >= BANKLOW_SINCE,
+            'numa_nodes': nodes, 'interleave': 'numa_policy=interleave' in read_text('/proc/cmdline')}
+
+
+def memory_text(m):
+    boot = f"bootloader {m['bootloader']}" if m['bootloader'] else 'bootloader unknown'
+    if m['banklow'] is None:
+        sdram = f'SDRAM tuning unknown ({boot})'
+    elif m['banklow']:
+        sdram = f'SDRAM tuning on ({boot})'
+    elif m['banklow_configured']:
+        sdram = 'SDRAM tuning off (SDRAM_BANKLOW=0 in the bootloader configuration)'
+    else:
+        sdram = f'SDRAM tuning off ({boot} is older than 2024-12-07: update the bootloader)'
+    if m['numa_nodes'] > 1:
+        numa = f"NUMA emulation: {m['numa_nodes']} nodes" + (', interleaved' if m['interleave'] else '')
+    else:
+        numa = 'NUMA emulation off'
+    return f'{sdram}; {numa}'
+
+
 def decode_throttled(value):
     now = [THROTTLE_BITS[b] for b in THROTTLE_BITS if value & (1 << b)]
     since = [THROTTLE_BITS[b] for b in THROTTLE_BITS if value & (1 << (b + 16))]
@@ -438,7 +484,7 @@ def reboot(tryboot=False):
     os.sync()
     args = ['systemctl', 'reboot']
     if tryboot:
-        args.append('0 tryboot')
+        args.append('--reboot-argument=0 tryboot')
     subprocess.Popen(args, start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -522,7 +568,8 @@ def start_load(kind, duration, gpu, log):
     procs = []
     stress = shutil.which('stress-ng')
     if stress:
-        args = [stress, '--cpu', '4', '--cpu-method', 'all', '--verify',
+        # a service runs in the read-only /, where stress-ng will not start
+        args = [stress, '--temp-path', '/tmp', '--cpu', '4', '--cpu-method', 'all', '--verify',
                 '--vm', '1' if kind == 'quick' else '2', '--vm-bytes', '256M',
                 '--timeout', f'{duration}s', '--metrics-brief']
         procs.append(('stress-ng', subprocess.Popen(
@@ -759,6 +806,7 @@ def status_data(live_only=False):
         'undervoltage_since_boot': bool(s['throttled'] & (1 << 16)),
         'stress_tool': 'stress-ng' if shutil.which('stress-ng') else 'builtin',
         'gpu_load': os.access(GPULOAD, os.X_OK),
+        'memory': memory_tuning(),
     })
     return data
 
@@ -781,6 +829,7 @@ def cmd_status(args):
     if c['foreign_lines']:
         print('  overclock.txt also has: ' + '; '.join(c['foreign_lines']))
     print('effective (get_config): ' + ', '.join(f'{k}={v}' for k, v in data['effective'].items()))
+    print('memory: ' + memory_text(data['memory']))
     if data['tryboot']:
         print('this is a trial (tryboot) boot')
     if data['pending_trial']:
