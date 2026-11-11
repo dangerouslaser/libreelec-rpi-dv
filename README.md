@@ -26,6 +26,7 @@ What this tree adds to LibreELEC.tv:
 | Kodi: VRR_ENABLED on a `vrr_capable` connector, refresh rate switches to the modes the display changes to without resynchronising, a "Variable refresh rate" setting, and those modes in place of the display's modes of the same size and rate | `projects/RPi/devices/RPi5/patches/kodi/0047–0050` |
 | Kodi: the Dolby Vision options as settings in Player / Videos, which every video starts with | `projects/RPi/devices/RPi5/patches/kodi/0051` |
 | Kodi: the GUI (OSD, menus) composited into the Dolby Vision signal, as the subtitles are, in the areas it covers | `projects/RPi/devices/RPi5/patches/kodi/0052` |
+| Kodi: Player information in Input, Processing and Output columns: the stream, its Dolby Vision configuration and RPU metadata, what the engine does with it and its GPU time, and the signal sent | `projects/RPi/devices/RPi5/patches/kodi/0054` |
 | LibreELEC's update menu offers this repository's releases, from `releases.json` on `main`, instead of LibreELEC's | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
