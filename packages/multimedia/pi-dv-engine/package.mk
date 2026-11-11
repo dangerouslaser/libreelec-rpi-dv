@@ -2,8 +2,8 @@
 # Copyright (C) 2026-present Team LibreELEC (https://libreelec.tv)
 
 PKG_NAME="pi-dv-engine"
-PKG_VERSION="0.4.0"
-PKG_SHA256="2f8629abf76500f3e924ca1cc030b8724df969f60260727250fcb8591024467a"
+PKG_VERSION="0.4.1"
+PKG_SHA256="02c61aad79f7c9378b73bebb61f11e8fa9c8a404aeb432fb49e1808793b7e6e6"
 PKG_LICENSE="GPL-2.0-or-later"
 PKG_SITE="https://github.com/dangerouslaser/libreelec-rpi-dv"
 PKG_URL="https://github.com/dangerouslaser/libreelec-rpi-dv/releases/download/engine-${PKG_VERSION}/${PKG_NAME}-${PKG_VERSION}.tar.xz"
