@@ -1,0 +1,1042 @@
+From aa76e16f77eeec0fde4494137666c3c3e8530742 Mon Sep 17 00:00:00 2001
+From: Bryan Hoban <bryan.hoban@gmail.com>
+Date: Wed, 11 Nov 2026 10:06:22 -0500
+Subject: [PATCH] overclock: CPU and GPU overclocking on the Raspberry Pi 5
+
+An Overclocking category, shown on the RPi5 when pi-overclock is
+installed: live clocks, temperature, fan and throttling; the Stock, Mild,
+Moderate and High presets, and custom values in expert mode; Apply and
+test, which restarts into a tryboot trial whose settings are kept only if
+its stability test passes; an extended stability test with a progress
+dialog; Revert to stock; and help on cooling, benefits and recovery.
+
+Every operation runs pi-overclock --json; value lists come from its
+limits, so the menu can't offer a value it would refuse. After a trial
+or a boot-guard shutdown, the service reports the result.
+
+Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
+---
+ .../resource.language.en_gb/strings.po        | 440 ++++++++++++++
+ resources/lib/modules/overclock.py            | 562 ++++++++++++++++++
+ 2 files changed, 1002 insertions(+)
+ create mode 100644 resources/lib/modules/overclock.py
+
+diff --git a/resources/language/resource.language.en_gb/strings.po b/resources/language/resource.language.en_gb/strings.po
+index 9d486bf..ce96718 100644
+--- a/resources/language/resource.language.en_gb/strings.po
++++ b/resources/language/resource.language.en_gb/strings.po
+@@ -1123,3 +1123,443 @@ msgstr ""
+ msgctxt "#32420"
+ msgid "Timezone"
+ msgstr ""
++
++msgctxt "#32700"
++msgid "Overclocking"
++msgstr ""
++
++msgctxt "#32701"
++msgid "Raise the CPU and GPU clocks of the Raspberry Pi 5. New settings are tried in a test boot and kept only if they pass."
++msgstr ""
++
++msgctxt "#32702"
++msgid "Live value, refreshed every 2 seconds."
++msgstr ""
++
++msgctxt "#32703"
++msgid "CPU (ARM) clock"
++msgstr ""
++
++msgctxt "#32704"
++msgid "GPU (V3D) clock"
++msgstr ""
++
++msgctxt "#32705"
++msgid "Temperature"
++msgstr ""
++
++msgctxt "#32706"
++msgid "Fan"
++msgstr ""
++
++msgctxt "#32707"
++msgid "Throttling"
++msgstr ""
++
++msgctxt "#32708"
++msgid "Settings in use"
++msgstr ""
++
++msgctxt "#32709"
++msgid "The overclock settings the Pi starts with."
++msgstr ""
++
++msgctxt "#32710"
++msgid "Last stability test"
++msgstr ""
++
++msgctxt "#32711"
++msgid "Stock"
++msgstr ""
++
++msgctxt "#32712"
++msgid "Mild"
++msgstr ""
++
++msgctxt "#32713"
++msgid "Moderate"
++msgstr ""
++
++msgctxt "#32714"
++msgid "High"
++msgstr ""
++
++msgctxt "#32715"
++msgid "Custom"
++msgstr ""
++
++msgctxt "#32716"
++msgid "Last trial"
++msgstr ""
++
++msgctxt "#32717"
++msgid "Trial"
++msgstr ""
++
++msgctxt "#32718"
++msgid "Testing the new settings now"
++msgstr ""
++
++msgctxt "#32719"
++msgid "Status"
++msgstr ""
++
++msgctxt "#32720"
++msgid "Expert mode"
++msgstr ""
++
++msgctxt "#32721"
++msgid "Shows custom values and applying without a test."
++msgstr ""
++
++msgctxt "#32722"
++msgid "Preset"
++msgstr ""
++
++msgctxt "#32723"
++msgid "Mild: CPU 2600 MHz. Moderate: CPU 2800 MHz, +25 mV. High: CPU 3000 MHz, +50 mV, GPU 1250 MHz (good cooling needed). Nothing changes until you choose Apply."
++msgstr ""
++
++msgctxt "#32724"
++msgid "Will apply"
++msgstr ""
++
++msgctxt "#32725"
++msgid "No change"
++msgstr ""
++
++msgctxt "#32726"
++msgid "The settings Apply would try, compared with the settings in use."
++msgstr ""
++
++msgctxt "#32727"
++msgid "CPU frequency (MHz)"
++msgstr ""
++
++msgctxt "#32728"
++msgid "arm_freq. Stock is 2400 MHz."
++msgstr ""
++
++msgctxt "#32729"
++msgid "Voltage offset (µV)"
++msgstr ""
++
++msgctxt "#32730"
++msgid "over_voltage_delta: added to the voltage the Pi chooses itself. CPU and GPU share this supply."
++msgstr ""
++
++msgctxt "#32731"
++msgid "GPU (V3D) frequency (MHz)"
++msgstr ""
++
++msgctxt "#32732"
++msgid "v3d_freq. Stock is 1150 MHz."
++msgstr ""
++
++msgctxt "#32733"
++msgid "Apply and test"
++msgstr ""
++
++msgctxt "#32734"
++msgid "unavailable: power supply under-voltage"
++msgstr ""
++
++msgctxt "#32735"
++msgid "Restarts into a trial with the selected settings and tests them for about 5 minutes. They are kept only if the test passes."
++msgstr ""
++
++msgctxt "#32736"
++msgid "Apply without test"
++msgstr ""
++
++msgctxt "#32737"
++msgid "Restarts into a trial and keeps the settings if the Pi starts, without a stability test."
++msgstr ""
++
++msgctxt "#32738"
++msgid "Retry with more voltage"
++msgstr ""
++
++msgctxt "#32739"
++msgid "Tries the settings of the failed trial again with 12.5 mV more."
++msgstr ""
++
++msgctxt "#32740"
++msgid "%d MHz"
++msgstr ""
++
++msgctxt "#32741"
++msgid "CPU %d MHz"
++msgstr ""
++
++msgctxt "#32742"
++msgid "voltage +%g mV"
++msgstr ""
++
++msgctxt "#32743"
++msgid "GPU %d MHz"
++msgstr ""
++
++msgctxt "#32744"
++msgid "Run extended stability test"
++msgstr ""
++
++msgctxt "#32745"
++msgid "Tests the settings in use for 15 or 30 minutes: CPU, memory and, with a GPU overclock, the GPU."
++msgstr ""
++
++msgctxt "#32746"
++msgid "Revert to stock"
++msgstr ""
++
++msgctxt "#32747"
++msgid "Removes the overclock and restarts."
++msgstr ""
++
++msgctxt "#32748"
++msgid "Profile"
++msgstr ""
++
++msgctxt "#32749"
++msgid "Custom values"
++msgstr ""
++
++msgctxt "#32750"
++msgid "under-voltage"
++msgstr ""
++
++msgctxt "#32751"
++msgid "CPU frequency capped"
++msgstr ""
++
++msgctxt "#32752"
++msgid "throttled"
++msgstr ""
++
++msgctxt "#32753"
++msgid "soft temperature limit"
++msgstr ""
++
++msgctxt "#32754"
++msgid "Actions"
++msgstr ""
++
++msgctxt "#32755"
++msgid "Help"
++msgstr ""
++
++msgctxt "#32756"
++msgid "None yet"
++msgstr ""
++
++msgctxt "#32757"
++msgid "Cancelled"
++msgstr ""
++
++msgctxt "#32758"
++msgid "Passed"
++msgstr ""
++
++msgctxt "#32759"
++msgid "Failed"
++msgstr ""
++
++msgctxt "#32760"
++msgid "Throttled: %s"
++msgstr ""
++
++msgctxt "#32761"
++msgid "Temperature stayed above 80 °C (%.1f °C)"
++msgstr ""
++
++msgctxt "#32762"
++msgid "CPU ran at %d MHz under load instead of %d MHz"
++msgstr ""
++
++msgctxt "#32763"
++msgid "A computation gave a wrong result"
++msgstr ""
++
++msgctxt "#32764"
++msgid "The test load stopped unexpectedly"
++msgstr ""
++
++msgctxt "#32765"
++msgid "The kernel logged errors"
++msgstr ""
++
++msgctxt "#32766"
++msgid "The GPU rendered a frame wrongly"
++msgstr ""
++
++msgctxt "#32767"
++msgid "The GPU load stopped unexpectedly"
++msgstr ""
++
++msgctxt "#32768"
++msgid "The firmware did not apply the settings"
++msgstr ""
++
++msgctxt "#32769"
++msgid "The trial start did not finish (it froze, restarted or lost power)"
++msgstr ""
++
++msgctxt "#32770"
++msgid "max %.1f °C"
++msgstr ""
++
++msgctxt "#32771"
++msgid "%.1f °C"
++msgstr ""
++
++msgctxt "#32772"
++msgid "%d rpm"
++msgstr ""
++
++msgctxt "#32773"
++msgid "Not detected"
++msgstr ""
++
++msgctxt "#32774"
++msgid "Not turning"
++msgstr ""
++
++msgctxt "#32775"
++msgid "Now: %s"
++msgstr ""
++
++msgctxt "#32776"
++msgid "Since start: %s"
++msgstr ""
++
++msgctxt "#32777"
++msgid "None"
++msgstr ""
++
++msgctxt "#32780"
++msgid "Cooling and power supply"
++msgstr ""
++
++msgctxt "#32781"
++msgid "What overclocking needs."
++msgstr ""
++
++msgctxt "#32782"
++msgid "What overclocking helps"
++msgstr ""
++
++msgctxt "#32783"
++msgid "What gets faster, and what doesn't."
++msgstr ""
++
++msgctxt "#32784"
++msgid "If the Pi won't start"
++msgstr ""
++
++msgctxt "#32785"
++msgid "How the trial protects you, and manual recovery."
++msgstr ""
++
++msgctxt "#32786"
++msgid "The power supply has dropped below its voltage since the Pi started. Fix the supply (the official 27 W, 5 V 5 A one) before going beyond Mild."
++msgstr ""
++
++msgctxt "#32787"
++msgid "A trial is running now. Wait for its result."
++msgstr ""
++
++msgctxt "#32788"
++msgid "These are the stock settings. Use Revert to stock to go back to them."
++msgstr ""
++
++msgctxt "#32789"
++msgid "New settings: %s"
++msgstr ""
++
++msgctxt "#32790"
++msgid "pi-overclock is not responding."
++msgstr ""
++
++msgctxt "#32791"
++msgid "The Pi restarts with them now and keeps them if it starts."
++msgstr ""
++
++msgctxt "#32792"
++msgid "The Pi restarts with them now and tests them for about %d minutes. They are kept only if the test passes; otherwise the next start uses the current settings."
++msgstr ""
++
++msgctxt "#32793"
++msgid "No fan detected: overclocking needs active cooling."
++msgstr ""
++
++msgctxt "#32794"
++msgid "Without a test, unstable settings can crash the Pi later. Continue?"
++msgstr ""
++
++msgctxt "#32795"
++msgid "Remove the overclock and restart now?"
++msgstr ""
++
++msgctxt "#32796"
++msgid "%d minutes"
++msgstr ""
++
++msgctxt "#32797"
++msgid "Starting..."
++msgstr ""
++
++msgctxt "#32798"
++msgid "Elapsed %d:%02d[CR]Temperature %.1f °C[CR]CPU %d MHz, GPU %d MHz"
++msgstr ""
++
++msgctxt "#32799"
++msgid "Overclocking needs active cooling: the official Active Cooler, or a case fan on the fan header. Without one the Pi 5 reaches its soft temperature limit under load and slows itself down, and the stability test fails above 80 °C.[CR][CR]Use the official 27 W (5 V, 5 A) power supply. If the Pi has seen under-voltage since it started, presets above Mild are refused until the supply is fixed.[CR][CR]The CPU and GPU share one supply rail, so a voltage offset raises both, and CPU and GPU overclocks together need more voltage than either alone."
++msgstr ""
++
++msgctxt "#32800"
++msgid "CPU: speeds up software video decoding (H.264 and other formats the Pi 5 has no hardware decoder for), Kodi's menus, add-ons and library scans.[CR][CR]GPU (V3D): this build renders Dolby Vision on the GPU, so a faster V3D clock gives Dolby Vision playback more headroom, most of all 4K Profile 7 FEL. It does nothing for HEVC decoding, which has its own hardware block, or for ordinary SDR and HDR10 playback.[CR][CR]Overclocking adds heat. The stock settings are right for most use."
++msgstr ""
++
++msgctxt "#32801"
++msgid "New settings are kept only if a trial start with them passes its test. If the trial fails or freezes, the next start uses the previous settings. A frozen trial restarts by itself within about 15 seconds; if it doesn't, unplug the power and plug it back in.[CR][CR]If three starts in a row with kept settings don't finish, the overclock is turned off by itself.[CR][CR]If the Pi still won't start: put its SD card or drive in another computer, open the small FAT partition, and delete the contents of overclock.txt (or the file). The Pi then starts at stock."
++msgstr ""
++
++msgctxt "#32802"
++msgid "Checking the new settings"
++msgstr ""
++
++msgctxt "#32803"
++msgid "Testing the new settings (about %d minutes)"
++msgstr ""
++
++msgctxt "#32804"
++msgid "Overclock applied"
++msgstr ""
++
++msgctxt "#32805"
++msgid "Retry with more voltage (%s)"
++msgstr ""
++
++msgctxt "#32806"
++msgid "Restart now with the previous settings"
++msgstr ""
++
++msgctxt "#32807"
++msgid "Close"
++msgstr ""
++
++msgctxt "#32808"
++msgid "Overclock trial failed"
++msgstr ""
++
++msgctxt "#32809"
++msgid "The settings were not kept. The next start uses the previous settings."
++msgstr ""
++
++msgctxt "#32810"
++msgid "Overclock turned off"
++msgstr ""
++
++msgctxt "#32811"
++msgid "%d starts in a row did not finish with the overclock (%s), so it was turned off. The Pi now runs at stock."
++msgstr ""
+diff --git a/resources/lib/modules/overclock.py b/resources/lib/modules/overclock.py
+new file mode 100644
+index 0000000..e70ac78
+--- /dev/null
++++ b/resources/lib/modules/overclock.py
+@@ -0,0 +1,562 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2026-present Team LibreELEC (https://libreelec.tv)
++
++"""Overclocking (Raspberry Pi 5). Every operation is pi-overclock --json;
++this module only shows its results and asks it to do things."""
++
++import json
++import os
++import signal
++import subprocess
++import threading
++import time
++
++import xbmc
++import xbmcgui
++
++import log
++import modules
++import oe
++
++
++CLI = '/usr/bin/pi-overclock'
++STATE_FILE = '/storage/.config/overclock/state.json'
++
++PRESET_NAMES = {
++    'stock': 32711,
++    'mild': 32712,
++    'moderate': 32713,
++    'high': 32714,
++    'custom': 32715,
++}
++THROTTLE_NAMES = {
++    'under_voltage': 32750,
++    'arm_capped': 32751,
++    'throttled': 32752,
++    'soft_temp_limit': 32753,
++}
++REASONS = {
++    'throttled': 32760,
++    'temp_high': 32761,
++    'clock_low': 32762,
++    'verify_failed': 32763,
++    'load_failed': 32764,
++    'kernel_errors': 32765,
++    'gpu_mismatch': 32766,
++    'gpu_failed': 32767,
++    'not_applied': 32768,
++    'trial_incomplete': 32769,
++}
++
++
++def cli(*args, timeout=60):
++    try:
++        out = subprocess.run([CLI, *args, '--json'], capture_output=True, text=True, timeout=timeout)
++        return json.loads(out.stdout.strip().splitlines()[-1])
++    except Exception as e:
++        log.log(f'pi-overclock {" ".join(args)}: {repr(e)}', log.ERROR)
++        return {'ok': False, 'error': {'code': 'cli', 'message': repr(e)}}
++
++
++def mhz(value):
++    return oe._(32740) % value if value else '-'
++
++
++def describe(settings):
++    if not settings:
++        return oe._(32711)
++    parts = []
++    if 'arm_freq' in settings:
++        parts.append(oe._(32741) % settings['arm_freq'])
++    if settings.get('over_voltage_delta'):
++        parts.append(oe._(32742) % (settings['over_voltage_delta'] / 1000))
++    if 'v3d_freq' in settings:
++        parts.append(oe._(32743) % settings['v3d_freq'])
++    return ', '.join(parts)
++
++
++def preset_label(preset, settings=None):
++    name = oe._(PRESET_NAMES.get(preset, 32715))
++    if settings:
++        return f'{name} ({describe(settings)})'
++    return name
++
++
++def throttle_text(flags):
++    return ', '.join(oe._(THROTTLE_NAMES[f]) for f in flags if f in THROTTLE_NAMES)
++
++
++def reason_text(reason):
++    if not reason:
++        return ''
++    code = reason.get('code')
++    if code == 'throttled':
++        return oe._(32760) % throttle_text(reason.get('flags', []))
++    if code == 'temp_high':
++        return oe._(32761) % reason.get('temp', 0)
++    if code == 'clock_low':
++        return oe._(32762) % (reason.get('mhz', 0), reason.get('target', 0))
++    if code in REASONS:
++        return oe._(REASONS[code])
++    return reason.get('message', code or '')
++
++
++class overclock(modules.Module):
++
++    ENABLED = False
++    menu = {'8': {
++        'name': 32700,
++        'menuLoader': 'load_menu',
++        'listTyp': 'list',
++        'InfoText': 32701,
++    }}
++
++    @log.log_function()
++    def __init__(self, oeMain):
++        super().__init__()
++        self.ENABLED = oe.DEVICE == 'RPi5' and os.path.exists(CLI)
++        self.limits = None
++        self.status = None
++        self.expert = False
++        self.selected = None
++        self.custom = {}
++        self.poller = None
++        self.events_thread = None
++
++    # ---------------------------------------------------------------- data
++
++    def load_limits(self):
++        if not self.limits:
++            data = cli('limits')
++            if 'limits' in data:
++                self.limits = data
++        return self.limits
++
++    def preset_settings(self, preset):
++        for p in self.limits['presets']:
++            if p['id'] == preset:
++                return dict(p['settings'])
++        return None
++
++    def selected_settings(self):
++        if self.selected == 'custom':
++            return {k: v for k, v in self.custom.items() if v is not None and not (k == 'over_voltage_delta' and v == 0)}
++        return self.preset_settings(self.selected) or {}
++
++    def range_values(self, key):
++        lim = self.limits['limits'][key]
++        return [str(v) for v in range(lim['min'], lim['max'] + 1, lim['step'])]
++
++    # ---------------------------------------------------------------- menu
++
++    @log.log_function()
++    def load_menu(self, focusItem):
++        if not self.load_limits():
++            oe.winOeMain.build_menu({'error': {'order': 1, 'name': 32700, 'settings': {
++                'error': {'name': 32790, 'value': '', 'action': '', 'type': 'readonly', 'order': 1}}}})
++            return
++        self.status = cli('status')
++        self.expert = oe.read_setting('overclock', 'expert') == '1'
++        committed = self.status.get('committed', {})
++        if self.selected is None:
++            self.selected = committed.get('preset', 'stock')
++            self.custom = dict(committed.get('settings', {}))
++        if self.selected == 'custom' and not self.expert:
++            self.selected = committed.get('preset', 'stock')
++            if self.selected == 'custom':
++                self.selected = 'stock'
++        oe.winOeMain.build_menu(self.build_struct())
++        self.start_polling()
++
++    def build_struct(self):
++        st = self.status
++        committed = st.get('committed', {})
++        selected = self.selected_settings()
++        uv_block = st.get('undervoltage_since_boot') and self.above_mild(selected)
++        trial_running = st.get('tryboot') and st.get('pending_trial')
++        last_trial = st.get('last_trial')
++
++        presets = [p['id'] for p in self.limits['presets']] + (['custom'] if self.expert else [])
++        preset_values = [oe._(PRESET_NAMES[p]) for p in presets]
++        v3d_values = [oe._(32711)] + self.range_values('v3d_freq')
++        custom_hidden = not (self.expert and self.selected == 'custom')
++
++        def readonly(name, value, order, info=32702):
++            return {'name': name, 'value': value, 'action': '', 'type': 'readonly', 'InfoText': info, 'order': order}
++
++        def button(name, action, order, info, hidden=False):
++            entry = {'name': name, 'value': '', 'action': action, 'type': 'button', 'InfoText': info, 'order': order}
++            if hidden:
++                entry['hidden'] = 'true'
++            return entry
++
++        status = {
++            'arm': readonly(32703, '', 1),
++            'v3d': readonly(32704, '', 2),
++            'temp': readonly(32705, '', 3),
++            'fan': readonly(32706, '', 4),
++            'throttle': readonly(32707, '', 5),
++            'committed': readonly(32708, preset_label(committed.get('preset', 'stock'), committed.get('settings')), 6, 32709),
++            'lasttest': readonly(32710, self.test_text(st.get('last_test')), 7),
++        }
++        if last_trial:
++            status['lasttrial'] = readonly(32716, self.trial_text(last_trial), 8)
++        if trial_running:
++            status['trial'] = readonly(32717, oe._(32718), 9)
++        self.fill_live(status, st)
++
++        changed = selected != committed.get('settings', {})
++        profile = {
++            'expert': {'name': 32720, 'value': '1' if self.expert else '0', 'action': 'set_expert',
++                       'type': 'bool', 'InfoText': 32721, 'order': 1},
++            'preset': {'name': 32722, 'value': oe._(PRESET_NAMES[self.selected]), 'action': 'set_preset',
++                       'type': 'multivalue', 'values': preset_values, 'InfoText': 32723, 'order': 2},
++            'pending': readonly(32724, describe(selected) if changed else oe._(32725), 3, 32726),
++        }
++        custom = {
++            'arm_freq': {'name': 32727, 'value': str(self.custom.get('arm_freq', self.limits['stock']['arm_freq'])),
++                         'action': 'set_custom', 'type': 'multivalue', 'values': self.range_values('arm_freq'),
++                         'InfoText': 32728, 'order': 1},
++            'over_voltage_delta': {'name': 32729, 'value': str(self.custom.get('over_voltage_delta', 0)),
++                                   'action': 'set_custom', 'type': 'multivalue',
++                                   'values': self.range_values('over_voltage_delta'), 'InfoText': 32730, 'order': 2},
++            'v3d_freq': {'name': 32731, 'value': str(self.custom['v3d_freq']) if 'v3d_freq' in self.custom else oe._(32711),
++                         'action': 'set_custom', 'type': 'multivalue', 'values': v3d_values,
++                         'InfoText': 32732, 'order': 3},
++        }
++        apply_name = oe._(32733) + (f' ({oe._(32734)})' if uv_block else '')
++        actions = {
++            'apply': button(apply_name, 'do_apply', 1, 32735),
++            'apply_notest': button(32736, 'do_apply_notest', 2, 32737, hidden=not self.expert),
++            'retry': button(32738, 'do_retry', 3, 32739,
++                            hidden=not (last_trial and not last_trial.get('passed') and last_trial.get('can_retry'))),
++            'extended': button(32744, 'do_extended_test', 4, 32745),
++            'revert': button(32746, 'do_revert', 5, 32747),
++        }
++        helps = {
++            'cooling': button(32780, 'show_help', 1, 32781),
++            'benefits': button(32782, 'show_help', 2, 32783),
++            'recovery': button(32784, 'show_help', 3, 32785),
++        }
++        struct = {
++            'status': {'order': 1, 'name': 32719, 'settings': status},
++            'profile': {'order': 2, 'name': 32748, 'settings': profile},
++            'custom': {'order': 3, 'name': 32749, 'settings': custom},
++            'actions': {'order': 4, 'name': 32754, 'settings': actions},
++            'help': {'order': 5, 'name': 32755, 'settings': helps},
++        }
++        if custom_hidden:
++            struct['custom']['hidden'] = 'true'
++        return struct
++
++    def above_mild(self, settings):
++        mild = self.preset_settings('mild')
++        return (settings.get('arm_freq', self.limits['stock']['arm_freq']) > mild['arm_freq']
++                or settings.get('over_voltage_delta', 0) > 0 or 'v3d_freq' in settings)
++
++    def test_text(self, result):
++        if not result:
++            return oe._(32756)
++        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(result['time']))
++        if result.get('cancelled'):
++            verdict = oe._(32757)
++        elif result.get('passed'):
++            verdict = oe._(32758)
++        else:
++            verdict = oe._(32759)
++        text = f"{verdict} {when}"
++        if result.get('max_temp') is not None:
++            text += ', ' + oe._(32770) % result['max_temp']
++        if result.get('reason'):
++            text += ': ' + reason_text(result['reason'])
++        return text
++
++    def trial_text(self, trial):
++        text = self.test_text(trial)
++        return f"{text} - {describe(trial.get('settings'))}"
++
++    def fill_live(self, status, st):
++        """status rows from a status or status --live result."""
++        live = st.get('live', {})
++        thr = live.get('throttled', {})
++        fan = st.get('fan', {})
++        values = {
++            'arm': mhz(live.get('arm_mhz')),
++            'v3d': mhz(live.get('v3d_mhz')),
++            'temp': oe._(32771) % live['temp'] if live.get('temp') is not None else '-',
++            'fan': {True: oe._(32772) % (fan.get('rpm') or 0), False: oe._(32773), None: oe._(32774)}[fan.get('present')],
++        }
++        if thr.get('now'):
++            values['throttle'] = oe._(32775) % throttle_text(thr['now'])
++        elif thr.get('since_boot'):
++            values['throttle'] = oe._(32776) % throttle_text(thr['since_boot'])
++        else:
++            values['throttle'] = oe._(32777)
++        for key, value in values.items():
++            if key in status:
++                status[key]['value'] = value
++        return values
++
++    # ------------------------------------------------------- live polling
++
++    def start_polling(self):
++        if self.poller and self.poller.is_alive():
++            return
++        self.poller = threading.Thread(target=self.poll, daemon=True)
++        self.poller.start()
++
++    def overclock_menu_open(self):
++        try:
++            win = oe.winOeMain
++            return win.visible and win.getControl(1000).getSelectedItem().getProperty('modul') == 'overclock'
++        except Exception:
++            return False
++
++    def poll(self):
++        monitor = xbmc.Monitor()
++        while not monitor.waitForAbort(2):
++            if not self.overclock_menu_open():
++                break
++            st = cli('status', '--live', timeout=10)
++            if 'live' not in st:
++                continue
++            values = self.fill_live({k: {} for k in ('arm', 'v3d', 'temp', 'fan', 'throttle')}, st)
++            try:
++                lst = oe.winOeMain.getControl(1100)
++                for i in range(lst.size()):
++                    item = lst.getListItem(i)
++                    if item.getProperty('category') == 'status' and item.getProperty('entry') in values:
++                        item.setProperty('value', values[item.getProperty('entry')])
++            except Exception as e:
++                log.log(f'overclock poll: {repr(e)}', log.DEBUG)
++                break
++
++    # ------------------------------------------------------------ setters
++
++    @log.log_function()
++    def set_expert(self, listItem):
++        self.expert = listItem.getProperty('value') == '1'
++        oe.write_setting('overclock', 'expert', '1' if self.expert else '0')
++
++    @log.log_function()
++    def set_preset(self, listItem):
++        value = listItem.getProperty('value')
++        for preset, string in PRESET_NAMES.items():
++            if oe._(string) == value:
++                if preset == 'custom' and self.selected != 'custom':
++                    self.custom = self.selected_settings()
++                self.selected = preset
++                break
++
++    @log.log_function()
++    def set_custom(self, listItem):
++        key = listItem.getProperty('entry')
++        value = listItem.getProperty('value')
++        if key == 'v3d_freq' and not value.isdigit():
++            self.custom.pop('v3d_freq', None)
++        else:
++            self.custom[key] = int(value)
++
++    # ------------------------------------------------------------ actions
++
++    def check(self, settings):
++        args = ['check']
++        if 'arm_freq' in settings:
++            args += ['--arm', str(settings['arm_freq'])]
++        if 'over_voltage_delta' in settings:
++            args += ['--ovd', str(settings['over_voltage_delta'])]
++        if 'v3d_freq' in settings:
++            args += ['--v3d', str(settings['v3d_freq'])]
++        return cli(*args), args[1:]
++
++    def blocker_text(self, blocker):
++        return {'undervoltage': oe._(32786), 'trial_running': oe._(32787)}.get(blocker['code'], blocker['message'])
++
++    def apply(self, skip_test):
++        settings = self.selected_settings()
++        dialog = xbmcgui.Dialog()
++        if not settings:
++            dialog.ok(oe._(32700), oe._(32788))
++            return
++        result, args = self.check(settings)
++        if result.get('error'):
++            dialog.ok(oe._(32700), result['error'].get('message', ''))
++            return
++        if result.get('blockers'):
++            dialog.ok(oe._(32700), '[CR]'.join(self.blocker_text(b) for b in result['blockers']))
++            return
++        text = oe._(32789) % describe(settings)
++        text += '[CR]' + (oe._(32791) if skip_test else oe._(32792) % (self.limits['quick_test_s'] // 60))
++        if any(w['code'] == 'no_fan' for w in result.get('warnings', [])):
++            text += '[CR][COLOR orange]' + oe._(32793) + '[/COLOR]'
++        if not dialog.yesno(oe._(32733), text):
++            return
++        if skip_test and not dialog.yesno(oe._(32736), oe._(32794)):
++            return
++        if skip_test:
++            args.append('--skip-test')
++        if self.selected != 'custom':
++            args = [self.selected] + (['--skip-test'] if skip_test else [])
++        reply = cli('try', *args)
++        if not reply.get('ok'):
++            dialog.ok(oe._(32700), reply.get('error', {}).get('message', ''))
++
++    @log.log_function()
++    def do_apply(self, listItem=None):
++        self.apply(skip_test=False)
++
++    @log.log_function()
++    def do_apply_notest(self, listItem=None):
++        self.apply(skip_test=True)
++
++    @log.log_function()
++    def do_retry(self, listItem=None):
++        last = (self.status or {}).get('last_trial') or {}
++        settings = dict(last.get('settings', {}))
++        settings['over_voltage_delta'] = settings.get('over_voltage_delta', 0) + self.limits['retry_step']
++        if not xbmcgui.Dialog().yesno(oe._(32738), oe._(32789) % describe(settings)):
++            return
++        reply = cli('retry')
++        if not reply.get('ok'):
++            xbmcgui.Dialog().ok(oe._(32700), reply.get('error', {}).get('message', ''))
++
++    @log.log_function()
++    def do_revert(self, listItem=None):
++        if xbmcgui.Dialog().yesno(oe._(32746), oe._(32795)):
++            self.selected = 'stock'
++            cli('revert')
++
++    @log.log_function()
++    def do_extended_test(self, listItem=None):
++        dialog = xbmcgui.Dialog()
++        minutes = [15, 30]
++        choice = dialog.select(oe._(32744), [oe._(32796) % m for m in minutes])
++        if choice < 0:
++            return
++        duration = minutes[choice] * 60
++        progress = xbmcgui.DialogProgress()
++        progress.create(oe._(32744), oe._(32797))
++        proc = subprocess.Popen([CLI, 'test', '--extended', '--duration', str(duration), '--json'],
++                                stdout=subprocess.PIPE, text=True)
++        lines = []
++        reader = threading.Thread(target=lambda: lines.extend(proc.stdout), daemon=True)
++        reader.start()
++        monitor = xbmc.Monitor()
++        result = None
++        seen = 0
++        while proc.poll() is None or reader.is_alive():
++            if progress.iscanceled() or monitor.abortRequested():
++                proc.send_signal(signal.SIGTERM)
++            for line in lines[seen:]:
++                seen += 1
++                try:
++                    data = json.loads(line)
++                except ValueError:
++                    continue
++                if data.get('type') == 'progress':
++                    pct = int(100 * data['elapsed'] / max(1, data['duration']))
++                    text = oe._(32798) % (data['elapsed'] // 60, data['elapsed'] % 60,
++                                          data['temp'] or 0, data['arm_mhz'] or 0, data['v3d_mhz'] or 0)
++                    progress.update(min(pct, 100), text)
++                elif data.get('type') == 'result':
++                    result = data
++                elif data.get('ok') is False:
++                    result = data
++            monitor.waitForAbort(0.5)
++        progress.close()
++        for line in lines[seen:]:
++            try:
++                data = json.loads(line)
++                if data.get('type') == 'result' or data.get('ok') is False:
++                    result = data
++            except ValueError:
++                pass
++        if not result:
++            return
++        if result.get('ok') is False:
++            dialog.ok(oe._(32744), result['error'].get('message', ''))
++        else:
++            dialog.ok(oe._(32744), self.test_text(result))
++
++    @log.log_function()
++    def show_help(self, listItem=None):
++        entry = listItem.getProperty('entry') if listItem else 'cooling'
++        heading, text = {'cooling': (32780, 32799), 'benefits': (32782, 32800),
++                         'recovery': (32784, 32801)}[entry]
++        xbmcgui.Dialog().textviewer(oe._(heading), oe._(text))
++
++    # ---------------------------------------------- results after a boot
++
++    @log.log_function()
++    def start_service(self):
++        if self.ENABLED and not self.events_thread:
++            self.events_thread = threading.Thread(target=self.watch_events, daemon=True)
++            self.events_thread.start()
++
++    def watch_events(self):
++        monitor = xbmc.Monitor()
++        mtime = None
++        # let Kodi's home screen come up first
++        if monitor.waitForAbort(10):
++            return
++        while True:
++            try:
++                current = os.stat(STATE_FILE).st_mtime
++            except OSError:
++                current = None
++            if current != mtime:
++                mtime = current
++                if current is not None:
++                    self.report_events()
++            if monitor.waitForAbort(5):
++                return
++
++    def report_events(self):
++        events = cli('events')
++        if not isinstance(events, list):
++            return
++        for event in events:
++            try:
++                self.report(event)
++            except Exception as e:
++                log.log(f'overclock event {event}: {repr(e)}', log.ERROR)
++            cli('ack', str(event['id']))
++
++    def report(self, event):
++        kind = event['type']
++        dialog = xbmcgui.Dialog()
++        settings = event.get('settings', {})
++        icon = 'special://home/addons/service.libreelec.settings/resources/icon.png'
++        if kind == 'trial_started':
++            minutes = (event.get('duration') or 300) // 60
++            dialog.notification(oe._(32700), oe._(32802) if event.get('skip_test') else oe._(32803) % minutes,
++                                xbmcgui.NOTIFICATION_INFO, 10000)
++        elif kind == 'trial_passed':
++            dialog.notification(oe._(32804), describe(settings), xbmcgui.NOTIFICATION_INFO, 10000)
++        elif kind == 'trial_failed':
++            reason = reason_text(event.get('reason'))
++            options, actions = [], []
++            if event.get('can_retry'):
++                retry = dict(settings)
++                retry['over_voltage_delta'] = retry.get('over_voltage_delta', 0) + 12500
++                options.append(oe._(32805) % describe(retry))
++                actions.append('retry')
++            if event.get('tryboot') and self.still_in_trial_boot():
++                options.append(oe._(32806))
++                actions.append('reboot')
++            options.append(oe._(32807))
++            actions.append('close')
++            dialog.ok(oe._(32808), f'{describe(settings)}[CR]{reason}[CR]' + oe._(32809))
++            choice = dialog.select(oe._(32808), options)
++            if choice >= 0 and actions[choice] == 'retry':
++                reply = cli('retry')
++                if not reply.get('ok'):
++                    dialog.ok(oe._(32700), reply.get('error', {}).get('message', ''))
++            elif choice >= 0 and actions[choice] == 'reboot':
++                xbmc.executebuiltin('Reboot')
++        elif kind == 'bootguard_disabled':
++            dialog.ok(oe._(32810), oe._(32811) % (event.get('attempts', 3), describe(settings)))
++
++    def still_in_trial_boot(self):
++        st = cli('status')
++        return bool(st.get('tryboot'))
+-- 
+2.50.1 (Apple Git-155)
+
