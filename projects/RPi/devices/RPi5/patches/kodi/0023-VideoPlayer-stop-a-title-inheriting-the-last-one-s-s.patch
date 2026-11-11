@@ -34,17 +34,17 @@ disc it came from.
 
 (cherry picked from commit f2eed157dc824313682df5acc1dce3f7e876ae27)
 ---
- xbmc/cores/VideoPlayer/VideoPlayer.cpp             | 14 ++++++++++++++
- xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp        |  6 ++++++
- .../VideoPlayer/VideoRenderers/RenderManager.cpp   |  9 +++++++++
- .../VideoPlayer/VideoRenderers/RenderManager.h     |  8 ++++++++
- 4 files changed, 37 insertions(+)
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp                  | 9 +++++++++
+ xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp             | 6 ++++++
+ xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp | 9 +++++++++
+ xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h   | 8 ++++++++
+ 4 files changed, 32 insertions(+)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index 1d6705eb3..7ec8cfe98 100644
+index 100ea0d4c..731045bc8 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-@@ -3118,6 +3118,20 @@ void CVideoPlayer::HandleMessages()
+@@ -3124,6 +3124,15 @@ void CVideoPlayer::HandleMessages()
  
        FlushBuffers(DVD_NOPTS_VALUE, true, true);
        m_renderManager.Flush(false, false);
@@ -56,11 +56,6 @@ index 1d6705eb3..7ec8cfe98 100644
 +      // for it.
 +      m_processInfo->ResetVideoCodecInfo();
 +      m_renderManager.ResetPictureInfo();
-+
-+      // A disc menu is kept out of the flush so that a seek does not wipe a page libbluray
-+      // will not draw again. Nothing draws it again here either, and the disc it belongs to
-+      // is about to go, so it would be left over the title that follows.
-+      m_overlayContainer.Clear(DVDOverlaySource::MENU);
 +
        m_pDemuxer.reset();
        m_pSubtitleDemuxer.reset();
@@ -83,10 +78,10 @@ index c8f609f4a..3880a35ba 100644
    m_rewindStalled = false;
    m_packets.clear();
 diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
-index a47cf8673..b7a140b58 100644
+index fc4b4238f..a68143abe 100644
 --- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
-@@ -819,6 +819,15 @@ void CRenderManager::UpdateResolution()
+@@ -828,6 +828,15 @@ void CRenderManager::UpdateResolution()
    }
  }
  
@@ -103,10 +98,10 @@ index a47cf8673..b7a140b58 100644
  {
    if (width)
 diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
-index 91a3fb1ab..9445a4ac8 100644
+index db0f71c77..98048b977 100644
 --- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
 +++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
-@@ -79,6 +79,14 @@ public:
+@@ -80,6 +80,14 @@ public:
    RESOLUTION GetResolution();
    void UpdateResolution();
    void TriggerUpdateResolution(float fps, int width, int height, std::string &stereomode);

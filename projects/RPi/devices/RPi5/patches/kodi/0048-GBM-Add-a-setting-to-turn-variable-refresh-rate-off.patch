@@ -25,7 +25,7 @@ Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
  11 files changed, 94 insertions(+), 11 deletions(-)
 
 diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
-index 6b0e8e279..acadf0ae9 100644
+index f9297fcfe..1d8e66ba7 100644
 --- a/addons/resource.language.en_gb/resources/strings.po
 +++ b/addons/resource.language.en_gb/resources/strings.po
 @@ -7835,7 +7835,13 @@ msgctxt "#13483"
@@ -43,7 +43,7 @@ index 6b0e8e279..acadf0ae9 100644
  
  #: system/settings/settings.xml
  msgctxt "#13505"
-@@ -20385,7 +20391,13 @@ msgctxt "#36058"
+@@ -20408,7 +20414,13 @@ msgctxt "#36058"
  msgid "Automatic"
  msgstr ""
  
@@ -118,19 +118,19 @@ index 37453ea2c..2875ca44b 100644
  RESOLUTION_WHR::RESOLUTION_WHR(int newWidth,
                                 int newHeight,
 diff --git a/xbmc/windowing/WinSystem.h b/xbmc/windowing/WinSystem.h
-index 477632da4..6a6dea8fd 100644
+index ebd9ef130..81c91f58e 100644
 --- a/xbmc/windowing/WinSystem.h
 +++ b/xbmc/windowing/WinSystem.h
-@@ -245,6 +245,8 @@ public:
-    */
+@@ -246,6 +246,8 @@ public:
    virtual bool SetHDR(const VideoPicture* videoPicture) { return false; }
+   // UWP refreshes cached HDR state on the UI thread when this is queried.
    virtual bool IsHDRDisplay() { return false; }
 +  //! The display can be driven with variable refresh rate.
 +  virtual bool IsVRRDisplay() { return false; }
    virtual HDR_STATUS ToggleHDR() { return HDR_STATUS::HDR_UNSUPPORTED; }
    virtual HDR_STATUS GetOSHDRStatus() { return HDR_STATUS::HDR_UNSUPPORTED; }
    virtual CHDRCapabilities GetDisplayHDRCapabilities() const { return {}; }
-@@ -254,6 +256,7 @@ public:
+@@ -255,6 +257,7 @@ public:
      return KODI::UTILS::Colorimetry::DEFAULT;
    }
    static const char* SETTING_WINSYSTEM_IS_HDR_DISPLAY;

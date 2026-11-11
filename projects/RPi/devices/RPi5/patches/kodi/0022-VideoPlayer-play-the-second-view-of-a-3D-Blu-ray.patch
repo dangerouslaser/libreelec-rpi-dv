@@ -1200,7 +1200,7 @@ index 1cb7b3337..c5063fcd4 100644
  
  core_add_library(dvdinputstreams)
 diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
-index a3934b18f..09a3141f9 100644
+index 0b291384f..95a2d3f9d 100644
 --- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
 +++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
 @@ -10,12 +10,15 @@
@@ -1232,7 +1232,7 @@ index a3934b18f..09a3141f9 100644
  #include <string>
  #include <vector>
  
-@@ -189,6 +194,13 @@ bool CDVDInputStreamBluray::Open()
+@@ -196,6 +201,13 @@ bool CDVDInputStreamBluray::Open()
        return false;
  
      openStream = true;
@@ -1246,7 +1246,7 @@ index a3934b18f..09a3141f9 100644
    }
    else if (VIDEO::IsProtectedBlurayDisc(m_item))
    {
-@@ -219,6 +231,10 @@ bool CDVDInputStreamBluray::Open()
+@@ -226,6 +238,10 @@ bool CDVDInputStreamBluray::Open()
      filename = URIUtils::GetFileName(m_item.GetDynPath());
    }
  
@@ -1257,7 +1257,7 @@ index a3934b18f..09a3141f9 100644
    // root should not have trailing slash
    URIUtils::RemoveSlashAtEnd(root);
  
-@@ -288,6 +304,8 @@ bool CDVDInputStreamBluray::Open()
+@@ -295,6 +311,8 @@ bool CDVDInputStreamBluray::Open()
      return false;
    }
  
@@ -1266,7 +1266,7 @@ index a3934b18f..09a3141f9 100644
    if (disc_info->bluray_detected)
    {
  #if (BLURAY_VERSION > BLURAY_VERSION_CODE(1,0,0))
-@@ -407,6 +425,14 @@ bool CDVDInputStreamBluray::Open()
+@@ -414,6 +432,14 @@ bool CDVDInputStreamBluray::Open()
    while (bd_get_event(m_bd, &m_event))
      ProcessEvent();
  
@@ -1281,7 +1281,7 @@ index a3934b18f..09a3141f9 100644
    return true;
  }
  
-@@ -584,10 +610,13 @@ void CDVDInputStreamBluray::ProcessEvent() {
+@@ -597,10 +623,13 @@ void CDVDInputStreamBluray::ProcessEvent() {
      m_playlist = m_event.param;
      FreeTitleInfo();
      m_titleInfo = bd_get_playlist_info(m_bd, m_playlist, m_angle);
@@ -1295,7 +1295,7 @@ index a3934b18f..09a3141f9 100644
      if (m_titleInfo && m_event.param < m_titleInfo->clip_count)
      {
        m_clip = &m_titleInfo->clips[m_event.param];
-@@ -1122,7 +1151,8 @@ static bool is_first_stream(int pid, const BLURAY_STREAM_INFO* info, int count)
+@@ -1153,7 +1182,8 @@ static bool is_first_stream(int pid, const BLURAY_STREAM_INFO* info, int count)
  
  bool CDVDInputStreamBluray::GetPlaylistStreamLanguage(int pid, std::string& language) const
  {
@@ -1305,7 +1305,7 @@ index a3934b18f..09a3141f9 100644
      return find_stream(pid, m_clip->video_streams, m_clip->video_stream_count, language);
    if (HDMV_PID_AUDIO_FIRST <= pid && pid <= HDMV_PID_AUDIO_LAST)
      return find_stream(pid, m_clip->audio_streams, m_clip->audio_stream_count, language);
-@@ -1200,6 +1230,125 @@ bool CDVDInputStreamBluray::IsDefaultStream(int pid) const
+@@ -1231,6 +1261,125 @@ bool CDVDInputStreamBluray::IsDefaultStream(int pid) const
    return false;
  }
  
@@ -1430,9 +1430,9 @@ index a3934b18f..09a3141f9 100644
 +
  CDVDInputStream::ENextStream CDVDInputStreamBluray::NextStream()
  {
-   if(!m_navmode || m_hold == HOLD_EXIT || m_hold == HOLD_ERROR)
+   if (!m_navmode || m_aborted || m_hold == HOLD_ERROR || HasGivenUpReading())
 diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
-index 1d648dbb2..090f06c97 100644
+index 5a0ebf3d1..1359cd82a 100644
 --- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
 +++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
 @@ -10,6 +10,7 @@
@@ -1443,15 +1443,15 @@ index 1d648dbb2..090f06c97 100644
  #include "threads/CriticalSection.h"
  #if defined(HAS_UDFREAD)
  #include "filesystem/UDFContext.h"
-@@ -17,6 +18,7 @@
- 
+@@ -18,6 +19,7 @@
+ #include <atomic>
  #include <chrono>
  #include <list>
 +#include <map>
  #include <memory>
  #include <optional>
  #include <string>
-@@ -38,6 +40,7 @@ extern "C"
+@@ -39,6 +41,7 @@ extern "C"
  #define BD_EVENT_ENC_ERROR    -3
  
  #define HDMV_PID_VIDEO            0x1011
@@ -1459,7 +1459,7 @@ index 1d648dbb2..090f06c97 100644
  #define HDMV_PID_AUDIO_FIRST      0x1100
  #define HDMV_PID_AUDIO_LAST       0x111f
  #define HDMV_PID_PG_FIRST         0x1200
-@@ -47,6 +50,7 @@ extern "C"
+@@ -48,6 +51,7 @@ extern "C"
  #define HDMV_PID_IG_FIRST         0x1400
  #define HDMV_PID_IG_LAST          0x141f
  
@@ -1467,7 +1467,7 @@ index 1d648dbb2..090f06c97 100644
  class CDVDOverlayImage;
  class IVideoPlayer;
  
-@@ -141,6 +145,57 @@ public:
+@@ -142,6 +146,57 @@ public:
     */
    bool IsDefaultStream(int pid) const;
  
@@ -1525,7 +1525,7 @@ index 1d648dbb2..090f06c97 100644
    void OverlayCallback(const BD_OVERLAY * const);
  #ifdef HAVE_LIBBLURAY_BDJ
    void OverlayCallbackARGB(const struct bd_argb_overlay_s * const);
-@@ -232,6 +287,10 @@ protected:
+@@ -244,6 +299,10 @@ protected:
       * \return True if the clip carries the stream, false otherwise
       */
      bool GetClipStreamLanguage(int pid, std::string& language) const;
@@ -1536,7 +1536,7 @@ index 1d648dbb2..090f06c97 100644
      std::unique_ptr<CDVDInputStreamFile> m_pstream;
      std::string m_rootPath;
  
-@@ -240,6 +299,24 @@ protected:
+@@ -252,6 +311,24 @@ protected:
      std::optional<XFILE::CUDFMount> m_udfMount;
  #endif
  

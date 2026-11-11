@@ -555,7 +555,7 @@ index e9bf7d09d..b12da5ac7 100644
    bool m_startedInput = false;
    int m_iLastKeyframe = 0;
 diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
-index ed1ff235a..dee4d11bb 100644
+index 6c8a18f81..4db7ee635 100644
 --- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
 +++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
 @@ -40,6 +40,7 @@ extern "C" {
@@ -645,7 +645,7 @@ index ed1ff235a..dee4d11bb 100644
    else
      pVideoPicture->stereoMode.clear();
  
-@@ -1236,7 +1276,7 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
+@@ -1255,7 +1295,7 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
    if (m_pFilterGraph)
      FilterClose();
  
@@ -654,7 +654,7 @@ index ed1ff235a..dee4d11bb 100644
      return 0;
  
    if (m_pHardware)
-@@ -1294,7 +1334,20 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
+@@ -1313,7 +1353,20 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
      return result;
    }
  
@@ -676,7 +676,7 @@ index ed1ff235a..dee4d11bb 100644
    {
      AVFilterInOut* outputs = avfilter_inout_alloc();
      AVFilterInOut* inputs  = avfilter_inout_alloc();
-@@ -1309,7 +1362,22 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
+@@ -1328,7 +1381,22 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
      inputs->pad_idx = 0;
      inputs->next = nullptr;
  
@@ -700,7 +700,7 @@ index ed1ff235a..dee4d11bb 100644
      avfilter_inout_free(&outputs);
      avfilter_inout_free(&inputs);
  
-@@ -1368,17 +1436,92 @@ void CDVDVideoCodecFFmpeg::FilterClose()
+@@ -1387,17 +1455,92 @@ void CDVDVideoCodecFFmpeg::FilterClose()
  
      // Disposed by above code
      m_pFilterIn = nullptr;
@@ -944,7 +944,7 @@ index 3cc705ba6..6190f05ca 100644
    }
    else if (right.type == StreamType::SUBTITLE)
 diff --git a/xbmc/cores/VideoPlayer/DVDStreamInfo.h b/xbmc/cores/VideoPlayer/DVDStreamInfo.h
-index 1da58a7e6..6cee4842c 100644
+index 609a13006..9239bced0 100644
 --- a/xbmc/cores/VideoPlayer/DVDStreamInfo.h
 +++ b/xbmc/cores/VideoPlayer/DVDStreamInfo.h
 @@ -79,6 +79,7 @@ public:
@@ -954,4 +954,4 @@ index 1da58a7e6..6cee4842c 100644
 +  bool multiview; // eyes are coded as separate views and must be packed by the decoder
    AVDOVIDecoderConfigurationRecord dovi{};
  
-   // AUDIO
+   // Dolby Vision profile 8 compatibility IDs 1 and 4 identify HDR10 and HLG
