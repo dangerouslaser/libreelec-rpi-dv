@@ -2,11 +2,11 @@
 # Copyright (C) 2026-present Team LibreELEC (https://libreelec.tv)
 
 PKG_NAME="pi-dv-engine"
-PKG_VERSION="0.3.0"
-PKG_SHA256="cfdcaff79bc6b9c3efa268f8fc7afda6b06c22c45d03931f958af8c0f80aa840"
+PKG_VERSION="0.4.0"
+PKG_SHA256="2f8629abf76500f3e924ca1cc030b8724df969f60260727250fcb8591024467a"
 PKG_LICENSE="GPL-2.0-or-later"
 PKG_SITE="https://github.com/dangerouslaser/libreelec-rpi-dv"
-PKG_URL="https://github.com/dangerouslaser/libreelec-rpi-dv/releases/download/v${PKG_VERSION}/${PKG_NAME}-${PKG_VERSION}.tar.xz"
+PKG_URL="https://github.com/dangerouslaser/libreelec-rpi-dv/releases/download/engine-${PKG_VERSION}/${PKG_NAME}-${PKG_VERSION}.tar.xz"
 PKG_DEPENDS_TARGET="toolchain ffmpeg vulkan-headers vulkan-loader"
 PKG_LONGDESC="Dolby Vision reconstruction for the Raspberry Pi 5 GPU (Vulkan), for Kodi."
 PKG_TOOLCHAIN="cmake"
