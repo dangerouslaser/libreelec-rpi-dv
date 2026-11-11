@@ -1,0 +1,150 @@
+{
+  "DV-13.0": {
+    "prettyname_regex": "-dv-([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-z]+\\.[0-9]+)?)",
+    "project": {
+      "RPi5.aarch64": {
+        "releases": {
+          "0": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261107203727-cc06cb2.tar",
+              "sha256": "5e82196d4ebfefe830f814b8949d8ba6909bb695a8490e7f6f5599fab597af37",
+              "size": "189378560",
+              "subpath": "v0.1.0",
+              "timestamp": "2026-11-07 20:42:57"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261107203727-cc06cb2.img.gz",
+              "sha256": "657a913879af0a6d26d7fe1b43f3f8db4e6bddcb38a80d81a08f3b187163695d",
+              "size": "186423105",
+              "subpath": "v0.1.0",
+              "timestamp": "2026-11-07 20:42:57"
+            }
+          },
+          "1": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108020425-999577c.tar",
+              "sha256": "2fd0545ca2550d4ff70d7f3b95b2ec11f34b2836a4148334179439c9632a222c",
+              "size": "188825600",
+              "subpath": "v0.2.0",
+              "timestamp": "2026-11-08 02:25:03"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108020425-999577c.img.gz",
+              "sha256": "b3a284ddf3763e914991ea1774e050e52bccdea9f5434e93556d949560656ce1",
+              "size": "185874828",
+              "subpath": "v0.2.0",
+              "timestamp": "2026-11-08 02:25:03"
+            }
+          },
+          "2": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108164306-97b3207.tar",
+              "sha256": "0fda8d26ca4385d1616d9b9c324e1d30a2f3dcabce489ae6bfae01ea70d2543e",
+              "size": "188856320",
+              "subpath": "v0.3.0",
+              "timestamp": "2026-11-08 16:51:58"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108164306-97b3207.img.gz",
+              "sha256": "e8d1a1090e266dcd42898ca14cface8f5c117bd7e7d724036093b9b143667761",
+              "size": "185901525",
+              "subpath": "v0.3.0",
+              "timestamp": "2026-11-08 16:51:58"
+            }
+          },
+          "3": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108183604-c000ae5.tar",
+              "sha256": "90645c938711cb602381f4e90263d2e47afc5a3b2b01d02a4960494163892d33",
+              "size": "188917760",
+              "subpath": "v0.4.0",
+              "timestamp": "2026-11-08 18:39:08"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261108183604-c000ae5.img.gz",
+              "sha256": "af3c7a5bf35179491e09a093caa2ef073421311159a58ee46e74a512e2664f9a",
+              "size": "185966973",
+              "subpath": "v0.4.0",
+              "timestamp": "2026-11-08 18:39:08"
+            }
+          }
+        }
+      }
+    },
+    "url": "https://github.com/dangerouslaser/libreelec-rpi-dv/releases/download/"
+  },
+  "DVbeta-13.0": {
+    "prettyname_regex": "-dv-([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-z]+\\.[0-9]+)?)",
+    "project": {
+      "RPi5.aarch64": {
+        "releases": {
+          "0": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110182355-bd322cb.tar",
+              "sha256": "60212d785078b6fae216c7525975403dad169082b72a300cdd4b13e50952a655",
+              "size": "189634560",
+              "subpath": "v0.5.0-beta.1",
+              "timestamp": "2026-11-10 18:28:39"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110182355-bd322cb.img.gz",
+              "sha256": "be5d2aca79a1e65ce197ba1cab9738c820831994c8584e1affc48c99d6ff723e",
+              "size": "186688251",
+              "subpath": "v0.5.0-beta.1",
+              "timestamp": "2026-11-10 18:28:39"
+            }
+          },
+          "1": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110184245-0a8cbf4.tar",
+              "sha256": "dfb14e95f3832c94209ee9351e79e8ccf54bfcc97432fd347a347d9fa88ac34a",
+              "size": "189634560",
+              "subpath": "v0.5.0-beta.2",
+              "timestamp": "2026-11-10 18:44:29"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110184245-0a8cbf4.img.gz",
+              "sha256": "b81cf8f4617fadc4aa7f294a519c0318fbc8344eb094291a4ab95a1edff93529",
+              "size": "186688196",
+              "subpath": "v0.5.0-beta.2",
+              "timestamp": "2026-11-10 18:44:29"
+            }
+          },
+          "2": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110190307-cffe363.tar",
+              "sha256": "5fd1a8c55dda966d1f981223e0bdd9a5f096569b4d34d0d5ba1167db84226faa",
+              "size": "189624320",
+              "subpath": "v0.5.0-beta.3",
+              "timestamp": "2026-11-10 19:04:25"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110190307-cffe363.img.gz",
+              "sha256": "b5cb3de9e71fcf5f4ef3e6865ee56514e3561e397aa02ec5febca2a738ef28e2",
+              "size": "186681133",
+              "subpath": "v0.5.0-beta.3",
+              "timestamp": "2026-11-10 19:04:25"
+            }
+          },
+          "3": {
+            "file": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110203956-8ac83f1.tar",
+              "sha256": "30caae677b5efc89b50f196f8de198884f2a6aadfeb4bb268f00e68e9c7cfa36",
+              "size": "189624320",
+              "subpath": "v0.5.0-beta.4",
+              "timestamp": "2026-11-10 20:41:26"
+            },
+            "image": {
+              "name": "LibreELEC-RPi5.aarch64-13.0-devel-20261110203956-8ac83f1.img.gz",
+              "sha256": "614c9fe7b8a2fac2b14e872ecb74e2472c477e66915ee6ee1ade5a83037497e9",
+              "size": "186680206",
+              "subpath": "v0.5.0-beta.4",
+              "timestamp": "2026-11-10 20:41:26"
+            }
+          }
+        }
+      }
+    },
+    "url": "https://github.com/dangerouslaser/libreelec-rpi-dv/releases/download/"
+  }
+}
