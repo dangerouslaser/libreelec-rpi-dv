@@ -1,14 +1,15 @@
-From aa76e16f77eeec0fde4494137666c3c3e8530742 Mon Sep 17 00:00:00 2001
+From 623598936c11adf3ef6ad71450e2032c068faa56 Mon Sep 17 00:00:00 2001
 From: Bryan Hoban <bryan.hoban@gmail.com>
 Date: Wed, 11 Nov 2026 10:06:22 -0500
 Subject: [PATCH] overclock: CPU and GPU overclocking on the Raspberry Pi 5
 
 An Overclocking category, shown on the RPi5 when pi-overclock is
-installed: live clocks, temperature, fan and throttling; the Stock, Mild,
-Moderate and High presets, and custom values in expert mode; Apply and
-test, which restarts into a tryboot trial whose settings are kept only if
-its stability test passes; an extended stability test with a progress
-dialog; Revert to stock; and help on cooling, benefits and recovery.
+installed: live clocks, temperature, fan, throttling and the state of the
+bootloader's memory tuning; the Stock, Mild, Moderate and High presets,
+and custom values in expert mode; Apply and test, which restarts into a
+tryboot trial whose settings are kept only if its stability test passes;
+an extended stability test with a progress dialog; Revert to stock; and
+help on cooling, benefits and recovery.
 
 Every operation runs pi-overclock --json; value lists come from its
 limits, so the menu can't offer a value it would refuse. After a trial
@@ -16,16 +17,16 @@ or a boot-guard shutdown, the service reports the result.
 
 Signed-off-by: Bryan Hoban <bryan.hoban@gmail.com>
 ---
- .../resource.language.en_gb/strings.po        | 440 ++++++++++++++
- resources/lib/modules/overclock.py            | 562 ++++++++++++++++++
- 2 files changed, 1002 insertions(+)
+ .../resource.language.en_gb/strings.po        | 468 ++++++++++++++
+ resources/lib/modules/overclock.py            | 574 ++++++++++++++++++
+ 2 files changed, 1042 insertions(+)
  create mode 100644 resources/lib/modules/overclock.py
 
 diff --git a/resources/language/resource.language.en_gb/strings.po b/resources/language/resource.language.en_gb/strings.po
-index 9d486bf..ce96718 100644
+index 9d486bf..8734383 100644
 --- a/resources/language/resource.language.en_gb/strings.po
 +++ b/resources/language/resource.language.en_gb/strings.po
-@@ -1123,3 +1123,443 @@ msgstr ""
+@@ -1123,3 +1123,471 @@ msgstr ""
  msgctxt "#32420"
  msgid "Timezone"
  msgstr ""
@@ -123,7 +124,7 @@ index 9d486bf..ce96718 100644
 +msgstr ""
 +
 +msgctxt "#32723"
-+msgid "Mild: CPU 2600 MHz. Moderate: CPU 2800 MHz, +25 mV. High: CPU 3000 MHz, +50 mV, GPU 1250 MHz (good cooling needed). Nothing changes until you choose Apply."
++msgid "Mild: CPU 2600 MHz. Moderate: CPU 2800 MHz. High: CPU 3000 MHz, GPU 1250 MHz (good cooling needed). Presets add no voltage: if a trial fails, you can retry it with +12.5 mV. Nothing changes until you choose Apply."
 +msgstr ""
 +
 +msgctxt "#32724"
@@ -469,12 +470,40 @@ index 9d486bf..ce96718 100644
 +msgctxt "#32811"
 +msgid "%d starts in a row did not finish with the overclock (%s), so it was turned off. The Pi now runs at stock."
 +msgstr ""
++
++msgctxt "#32812"
++msgid "Memory tuning"
++msgstr ""
++
++msgctxt "#32813"
++msgid "The bootloader's SDRAM tuning and the kernel's NUMA emulation make memory 10 to 20% faster. Both are on by default with a bootloader from December 2024 or later, so there is nothing to set here. With an older bootloader, update it under System > Updates > Bootloader EEPROM."
++msgstr ""
++
++msgctxt "#32814"
++msgid "On (bootloader %s, %d NUMA nodes)"
++msgstr ""
++
++msgctxt "#32815"
++msgid "SDRAM tuning on, NUMA emulation off (bootloader %s)"
++msgstr ""
++
++msgctxt "#32816"
++msgid "Off: bootloader %s is older than December 2024, update it"
++msgstr ""
++
++msgctxt "#32817"
++msgid "Off: SDRAM_BANKLOW=0 in the bootloader configuration"
++msgstr ""
++
++msgctxt "#32818"
++msgid "Unknown"
++msgstr ""
 diff --git a/resources/lib/modules/overclock.py b/resources/lib/modules/overclock.py
 new file mode 100644
-index 0000000..e70ac78
+index 0000000..4caf668
 --- /dev/null
 +++ b/resources/lib/modules/overclock.py
-@@ -0,0 +1,562 @@
+@@ -0,0 +1,574 @@
 +# SPDX-License-Identifier: GPL-2.0-or-later
 +# Copyright (C) 2026-present Team LibreELEC (https://libreelec.tv)
 +
@@ -676,6 +705,8 @@ index 0000000..e70ac78
 +            'committed': readonly(32708, preset_label(committed.get('preset', 'stock'), committed.get('settings')), 6, 32709),
 +            'lasttest': readonly(32710, self.test_text(st.get('last_test')), 7),
 +        }
++        if st.get('memory'):
++            status['memory'] = readonly(32812, self.memory_text(st['memory']), 10, 32813)
 +        if last_trial:
 +            status['lasttrial'] = readonly(32716, self.trial_text(last_trial), 8)
 +        if trial_running:
@@ -747,6 +778,16 @@ index 0000000..e70ac78
 +        if result.get('reason'):
 +            text += ': ' + reason_text(result['reason'])
 +        return text
++
++    def memory_text(self, memory):
++        bootloader = memory.get('bootloader') or '?'
++        if memory.get('banklow') is None:
++            return oe._(32818)
++        if not memory['banklow']:
++            return oe._(32817) if memory.get('banklow_configured') else oe._(32816) % bootloader
++        if memory.get('numa_nodes', 0) > 1:
++            return oe._(32814) % (bootloader, memory['numa_nodes'])
++        return oe._(32815) % bootloader
 +
 +    def trial_text(self, trial):
 +        text = self.test_text(trial)
@@ -1038,5 +1079,5 @@ index 0000000..e70ac78
 +        st = cli('status')
 +        return bool(st.get('tryboot'))
 -- 
-2.50.1 (Apple Git-155)
+2.43.0
 
