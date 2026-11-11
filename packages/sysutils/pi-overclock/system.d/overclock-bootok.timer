@@ -1,0 +1,8 @@
+[Unit]
+Description=Overclock boot guard: this boot finished
+
+[Timer]
+OnBootSec=120
+
+[Install]
+WantedBy=timers.target

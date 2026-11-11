@@ -1,0 +1,7 @@
+[Unit]
+Description=Overclock boot guard: this boot finished
+After=kodi.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pi-overclock boot-ok

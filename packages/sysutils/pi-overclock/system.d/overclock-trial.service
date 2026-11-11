@@ -1,0 +1,13 @@
+[Unit]
+Description=Overclock trial: test new settings on a tryboot boot
+After=kodi.service overclock-bootguard.service
+ConditionPathExists=/proc/device-tree/chosen/bootloader/tryboot
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pi-overclock trial-run
+TimeoutStopSec=30
+KillMode=mixed
+
+[Install]
+WantedBy=kodi.target

@@ -35,6 +35,9 @@ fi
 # Automounter support
 [ "${UDEVIL}" = "yes" ] && PKG_DEPENDS_TARGET+=" udevil"
 
+# Overclocking (RPi5)
+[ "${OVERCLOCK_SUPPORT}" = "yes" ] && PKG_DEPENDS_TARGET+=" pi-overclock"
+
 # Remote support
 [ "${REMOTE_SUPPORT}" = "yes" ] && PKG_DEPENDS_TARGET+=" remote"
 

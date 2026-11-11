@@ -1,0 +1,1198 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026-present Team LibreELEC (https://libreelec.tv)
+
+"""CPU and GPU overclocking for the Raspberry Pi 5.
+
+New settings are first booted once through the firmware's tryboot
+(tryboot.txt instead of config.txt) and tested there; only settings that
+pass are written to overclock.txt, which config.txt includes. Settings that
+fail, or a trial boot that never finishes, leave config.txt as it was, so
+the next ordinary boot uses the previous settings.
+"""
+
+import argparse
+import ctypes
+import fcntl
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+FLASH = os.environ.get('PI_OVERCLOCK_FLASH', '/flash')
+STATE_DIR = os.environ.get('PI_OVERCLOCK_STATE', '/storage/.config/overclock')
+RUN_DIR = os.environ.get('PI_OVERCLOCK_RUN', '/run/pi-overclock')
+LIB_DIR = '/usr/lib/pi-overclock'
+
+CONFIG_TXT = 'config.txt'
+OVERCLOCK_TXT = 'overclock.txt'
+TRYBOOT_TXT = 'tryboot.txt'
+TRYBOOT_CMDLINE = 'cmdline-overclock.txt'
+STATE_FILE = os.path.join(STATE_DIR, 'state.json')
+HISTORY_LOG = os.path.join(STATE_DIR, 'history.log')
+PROGRESS_FILE = os.path.join(RUN_DIR, 'progress.json')
+LOCK_FILE = os.path.join(RUN_DIR, 'lock')
+TEST_LOCK_FILE = os.path.join(RUN_DIR, 'test.lock')
+TRYBOOT_DT = '/proc/device-tree/chosen/bootloader/tryboot'
+GPULOAD = os.path.join(LIB_DIR, 'pi-overclock-gpuload')
+
+MARKER = '# pi-overclock'
+INCLUDE_RE = re.compile(r'^\s*include\s+overclock\.txt\s*$')
+
+# The settings this tool writes. Nothing else (force_turbo, core_freq,
+# legacy over_voltage, gpu_freq) is ever written.
+KEYS = ('arm_freq', 'over_voltage_delta', 'v3d_freq')
+LIMITS = {
+    'arm_freq': {'min': 1500, 'max': 3200, 'step': 100, 'unit': 'MHz'},
+    'over_voltage_delta': {'min': 0, 'max': 100000, 'step': 12500, 'unit': 'uV'},
+    # the lower bound is the firmware's stock V3D clock on the Pi 5
+    'v3d_freq': {'min': 1150, 'max': 1350, 'step': 50, 'unit': 'MHz'},
+}
+STOCK = {'arm_freq': 2400, 'over_voltage_delta': 0, 'v3d_freq': 1150}
+PRESETS = [
+    {'id': 'stock', 'settings': {}},
+    {'id': 'mild', 'settings': {'arm_freq': 2600}},
+    {'id': 'moderate', 'settings': {'arm_freq': 2800, 'over_voltage_delta': 25000}},
+    {'id': 'high', 'settings': {'arm_freq': 3000, 'over_voltage_delta': 50000, 'v3d_freq': 1250}},
+]
+MILD = PRESETS[1]['settings']
+
+QUICK_TEST_S = 300
+EXTENDED_TEST_S = 1200
+SAMPLE_S = 2
+TEMP_FAIL_C = 80.0
+TEMP_FAIL_S = 30
+BOOT_ATTEMPTS_MAX = 3
+SETTLE_S = 45          # after Kodi starts on a trial boot, before the test
+NO_TEST_UP_S = 60      # time a trial without a test must stay up
+
+THROTTLE_BITS = {
+    0: 'under_voltage',
+    1: 'arm_capped',
+    2: 'throttled',
+    3: 'soft_temp_limit',
+}
+THROTTLE_TEXT = {
+    'under_voltage': 'under-voltage',
+    'arm_capped': 'ARM frequency capped',
+    'throttled': 'throttled',
+    'soft_temp_limit': 'soft temperature limit',
+}
+
+DMESG_RE = re.compile(
+    r'Oops|BUG:|Internal error|Unable to handle|Kernel panic|watchdog: BUG|'
+    r'rcu.*stall|v3d.*(error|timeout|hang|reset|fault)|'
+    r'mmc\d*:.*(error|timeout)|nvme.*(error|timeout|reset)|'
+    r'I/O error|EXT4-fs error|Under-voltage|Undervoltage', re.IGNORECASE)
+
+
+class Error(Exception):
+    def __init__(self, code, message, **data):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.data = data
+
+
+# --------------------------------------------------------------------------
+# settings
+
+def describe(settings):
+    if not settings:
+        return 'stock'
+    parts = []
+    if 'arm_freq' in settings:
+        parts.append(f"CPU {settings['arm_freq']} MHz")
+    if settings.get('over_voltage_delta'):
+        parts.append(f"voltage +{settings['over_voltage_delta'] / 1000:g} mV")
+    if 'v3d_freq' in settings:
+        parts.append(f"GPU {settings['v3d_freq']} MHz")
+    return ', '.join(parts) if parts else 'stock'
+
+
+def normalise(settings):
+    """Drop values that equal stock, so 'stock' has one representation."""
+    out = {}
+    for key in KEYS:
+        if key in settings and settings[key] is not None:
+            value = int(settings[key])
+            if key == 'over_voltage_delta' and value == 0:
+                continue
+            out[key] = value
+    return out
+
+
+def validate(settings):
+    errors = []
+    for key, value in settings.items():
+        if key not in LIMITS:
+            errors.append({'key': key, 'message': f'{key} is not a supported setting'})
+            continue
+        lim = LIMITS[key]
+        if not isinstance(value, int):
+            errors.append({'key': key, 'message': f'{key} must be a whole number'})
+        elif value < lim['min'] or value > lim['max']:
+            errors.append({'key': key, 'message': f"{key}={value} is outside {lim['min']}..{lim['max']}"})
+        elif (value - lim['min']) % lim['step']:
+            errors.append({'key': key, 'message': f"{key}={value} is not a multiple of {lim['step']} from {lim['min']}"})
+    return errors
+
+
+def above_mild(settings):
+    return (settings.get('arm_freq', STOCK['arm_freq']) > MILD['arm_freq']
+            or settings.get('over_voltage_delta', 0) > 0
+            or 'v3d_freq' in settings)
+
+
+def preset_of(settings):
+    for p in PRESETS:
+        if p['settings'] == settings:
+            return p['id']
+    return 'custom'
+
+
+def render_overclock(settings, preset):
+    lines = [
+        f'{MARKER}: written by LibreELEC Settings > Overclocking.',
+        '# Delete the lines below this comment to go back to stock.',
+    ]
+    if settings:
+        lines.append(f'# preset={preset}')
+        lines.append('[pi5]')
+        for key in KEYS:
+            if key in settings:
+                lines.append(f'{key}={settings[key]}')
+        lines.append('[all]')
+    return '\n'.join(lines) + '\n'
+
+
+def parse_overclock(text):
+    settings, preset, foreign = {}, None, []
+    for line in text.splitlines():
+        s = line.strip()
+        m = re.match(r'#\s*preset=(\w+)', s)
+        if m:
+            preset = m.group(1)
+            continue
+        if not s or s.startswith('#') or s.startswith('['):
+            continue
+        key, _, value = s.partition('=')
+        key = key.strip()
+        if key in KEYS:
+            try:
+                settings[key] = int(value.strip())
+            except ValueError:
+                foreign.append(s)
+        else:
+            foreign.append(s)
+    settings = normalise(settings)
+    return settings, (preset or preset_of(settings)), foreign
+
+
+# --------------------------------------------------------------------------
+# files
+
+def read_text(path, default=''):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return default
+
+
+def fsync_dir(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_atomic(path, text):
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fsync_dir(os.path.dirname(path) or '.')
+
+
+def flash_is_ro():
+    with open('/proc/mounts') as f:
+        for line in f:
+            fields = line.split()
+            if len(fields) >= 4 and fields[1] == FLASH:
+                return 'ro' in fields[3].split(',')
+    return False  # not a mount point (tests): plain directory
+
+
+class FlashWritable:
+    """Remount /flash read-write for the block, and read-only again after,
+    whatever happens inside it."""
+
+    def __enter__(self):
+        self.was_ro = flash_is_ro()
+        if self.was_ro:
+            subprocess.run(['mount', '-o', 'remount,rw', FLASH], check=True)
+        return self
+
+    def __exit__(self, *exc):
+        os.sync()
+        if self.was_ro:
+            for _ in range(5):
+                if subprocess.run(['mount', '-o', 'remount,ro', FLASH]).returncode == 0:
+                    break
+                os.sync()
+                time.sleep(1)
+        return False
+
+
+def flash_path(name):
+    return os.path.join(FLASH, name)
+
+
+# --------------------------------------------------------------------------
+# state
+
+def default_state():
+    return {
+        'version': 1,
+        'boot_attempts': 0,
+        'pending_trial': None,
+        'last_trial': None,
+        'last_test': None,
+        'events': [],
+        'next_event_id': 1,
+    }
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            state = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return default_state()
+    base = default_state()
+    base.update(state)
+    return base
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    write_atomic(STATE_FILE, json.dumps(state, indent=1, sort_keys=True) + '\n')
+
+
+def history(event, **data):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    line = time.strftime('%Y-%m-%d %H:%M:%S') + f' {event}'
+    if data:
+        line += ' ' + json.dumps(data, sort_keys=True)
+    with open(HISTORY_LOG, 'a') as f:
+        f.write(line + '\n')
+    # keep the log short
+    try:
+        if os.path.getsize(HISTORY_LOG) > 256 * 1024:
+            lines = read_text(HISTORY_LOG).splitlines()[-1000:]
+            write_atomic(HISTORY_LOG, '\n'.join(lines) + '\n')
+    except OSError:
+        pass
+
+
+def add_event(state, kind, **data):
+    event = {'id': state['next_event_id'], 'type': kind, 'time': int(time.time()), 'seen': False}
+    event.update(data)
+    state['next_event_id'] += 1
+    state['events'] = (state['events'] + [event])[-20:]
+    return event
+
+
+class Lock:
+    """LOCK_FILE guards state and /flash (held briefly); TEST_LOCK_FILE is
+    held for a whole stability test."""
+
+    def __init__(self, wait=True, path=LOCK_FILE):
+        self.wait = wait
+        self.path = path
+
+    def __enter__(self):
+        os.makedirs(RUN_DIR, exist_ok=True)
+        self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | (0 if self.wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            os.close(self.fd)
+            raise Error('busy', 'a stability test is running')
+        return self
+
+    def __exit__(self, *exc):
+        fcntl.flock(self.fd, fcntl.LOCK_UN)
+        os.close(self.fd)
+        return False
+
+
+# --------------------------------------------------------------------------
+# hardware
+
+def vcgencmd(*args):
+    try:
+        out = subprocess.run(['vcgencmd', *args], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    return out.stdout.strip()
+
+
+def measure_clock_mhz(name):
+    m = re.search(r'=(\d+)', vcgencmd('measure_clock', name))
+    return round(int(m.group(1)) / 1e6) if m else None
+
+
+def measure_temp():
+    m = re.search(r'=([\d.]+)', vcgencmd('measure_temp'))
+    if m:
+        return float(m.group(1))
+    try:
+        return int(read_text('/sys/class/thermal/thermal_zone0/temp').strip()) / 1000
+    except ValueError:
+        return None
+
+
+def get_throttled():
+    m = re.search(r'=(0x[0-9a-fA-F]+)', vcgencmd('get_throttled'))
+    return int(m.group(1), 16) if m else 0
+
+
+def get_config(key):
+    m = re.search(r'=(-?\d+)', vcgencmd('get_config', key))
+    return int(m.group(1)) if m else None
+
+
+def decode_throttled(value):
+    now = [THROTTLE_BITS[b] for b in THROTTLE_BITS if value & (1 << b)]
+    since = [THROTTLE_BITS[b] for b in THROTTLE_BITS if value & (1 << (b + 16))]
+    return {'value': f'0x{value:x}', 'now': now, 'since_boot': since}
+
+
+def throttle_text(flags):
+    return ', '.join(THROTTLE_TEXT[f] for f in flags)
+
+
+def fan_state():
+    for hw in sorted(os.listdir('/sys/class/hwmon')) if os.path.isdir('/sys/class/hwmon') else []:
+        base = os.path.join('/sys/class/hwmon', hw)
+        if read_text(os.path.join(base, 'name')).strip() != 'pwmfan':
+            continue
+        try:
+            rpm = int(read_text(os.path.join(base, 'fan1_input'), '0').strip() or 0)
+            pwm = int(read_text(os.path.join(base, 'pwm1'), '0').strip() or 0)
+        except ValueError:
+            break
+        if rpm > 0:
+            return {'present': True, 'rpm': rpm}
+        # driven but not turning: nothing on the fan header
+        return {'present': False if pwm > 0 else None, 'rpm': 0}
+    return {'present': None, 'rpm': None}
+
+
+def is_tryboot():
+    try:
+        with open(TRYBOOT_DT, 'rb') as f:
+            return int.from_bytes(f.read(4), 'big') == 1
+    except OSError:
+        return False
+
+
+def sample():
+    return {
+        'time': time.time(),
+        'arm_mhz': measure_clock_mhz('arm'),
+        'v3d_mhz': measure_clock_mhz('v3d'),
+        'core_mhz': measure_clock_mhz('core'),
+        'temp': measure_temp(),
+        'throttled': get_throttled(),
+        'fan_rpm': fan_state()['rpm'],
+    }
+
+
+def effective_settings():
+    return {key: get_config(key) for key in KEYS}
+
+
+def committed():
+    text = read_text(flash_path(OVERCLOCK_TXT), None)
+    if text is None:
+        return {}, 'stock', [], False
+    settings, preset, foreign = parse_overclock(text)
+    return settings, preset, foreign, True
+
+
+def kodi_active():
+    return subprocess.run(['systemctl', '-q', 'is-active', 'kodi.service']).returncode == 0
+
+
+def reboot(tryboot=False):
+    os.sync()
+    args = ['systemctl', 'reboot']
+    if tryboot:
+        args.append('0 tryboot')
+    subprocess.Popen(args, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# --------------------------------------------------------------------------
+# trial boot files
+
+def tryboot_config(candidate):
+    """config.txt with the candidate settings in place of 'include
+    overclock.txt', and a kernel command line with the hardware watchdog."""
+    config = read_text(flash_path(CONFIG_TXT))
+    block = [f'{MARKER}: trial settings', '[pi5]']
+    block += [f'{k}={candidate[k]}' for k in KEYS if k in candidate]
+    block.append('[all]')
+    out, replaced = [], False
+    for line in config.splitlines():
+        if INCLUDE_RE.match(line):
+            out += block
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out += [''] + block
+    own_cmdline = not re.search(r'^\s*(cmdline|os_prefix)\s*=', config, re.MULTILINE)
+    head = [f'{MARKER}: trial boot config, written for one "reboot 0 tryboot".',
+            '# The next ordinary boot uses config.txt again.']
+    tail = []
+    if own_cmdline:
+        tail = ['', '[all]', f'cmdline={TRYBOOT_CMDLINE}']
+    return '\n'.join(head + out + tail) + '\n', own_cmdline
+
+
+def tryboot_cmdline():
+    cmdline = read_text(flash_path('cmdline.txt')).strip().replace('\n', ' ')
+    cmdline = re.sub(r'\s*\b(systemd\.watchdog_sec|panic)=\S+', '', cmdline)
+    # a hard freeze resets the board; a panic reboots it. Either way the
+    # firmware then boots config.txt.
+    return cmdline + ' systemd.watchdog_sec=15 panic=10\n'
+
+
+def stage_trial(candidate):
+    tryboot, own_cmdline = tryboot_config(candidate)
+    with FlashWritable():
+        current = read_text(flash_path(TRYBOOT_TXT), None)
+        if current is not None and not current.startswith(MARKER):
+            # someone's own tryboot.txt: keep it
+            backup = flash_path(TRYBOOT_TXT + '.orig')
+            if not os.path.exists(backup):
+                os.replace(flash_path(TRYBOOT_TXT), backup)
+        if own_cmdline:
+            write_atomic(flash_path(TRYBOOT_CMDLINE), tryboot_cmdline())
+        write_atomic(flash_path(TRYBOOT_TXT), tryboot)
+        if not os.path.exists(flash_path(OVERCLOCK_TXT)):
+            write_atomic(flash_path(OVERCLOCK_TXT), render_overclock({}, 'stock'))
+    return own_cmdline
+
+
+def commit(settings, preset):
+    with FlashWritable():
+        write_atomic(flash_path(OVERCLOCK_TXT), render_overclock(settings, preset))
+
+
+# --------------------------------------------------------------------------
+# stability test
+
+def _die_with_parent():
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+    except OSError:
+        pass
+
+
+def dmesg_lines():
+    out = subprocess.run(['dmesg'], capture_output=True, text=True).stdout
+    return out.splitlines()
+
+
+def start_load(kind, duration, gpu, log):
+    """Start the load processes. Returns [(name, Popen, stop_signal)]."""
+    procs = []
+    stress = shutil.which('stress-ng')
+    if stress:
+        args = [stress, '--cpu', '4', '--cpu-method', 'all', '--verify',
+                '--vm', '1' if kind == 'quick' else '2', '--vm-bytes', '256M',
+                '--timeout', f'{duration}s', '--metrics-brief']
+        procs.append(('stress-ng', subprocess.Popen(
+            args, stdout=log, stderr=subprocess.STDOUT, preexec_fn=_die_with_parent), signal.SIGINT))
+    else:
+        me = os.path.abspath(__file__)
+        for i in range(4):
+            procs.append((f'cpu{i}', subprocess.Popen(
+                [sys.executable, me, '_cpu-worker'], stdout=log, stderr=subprocess.STDOUT,
+                preexec_fn=_die_with_parent), signal.SIGTERM))
+        procs.append(('mem', subprocess.Popen(
+            [sys.executable, me, '_mem-worker', '128' if kind == 'quick' else '256'],
+            stdout=log, stderr=subprocess.STDOUT, preexec_fn=_die_with_parent), signal.SIGTERM))
+    if gpu and os.access(GPULOAD, os.X_OK):
+        procs.append(('gpu', subprocess.Popen(
+            [GPULOAD], stdout=log, stderr=subprocess.STDOUT, preexec_fn=_die_with_parent), signal.SIGTERM))
+    return procs
+
+
+def stop_load(procs, grace=20):
+    for name, p, sig in procs:
+        if p.poll() is None:
+            try:
+                p.send_signal(sig)
+            except ProcessLookupError:
+                pass
+    deadline = time.time() + grace
+    for name, p, sig in procs:
+        try:
+            p.wait(max(0.1, deadline - time.time()))
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+
+
+def load_failure(name, code):
+    if name == 'gpu':
+        if code == 2:
+            return {'code': 'gpu_mismatch', 'message': 'the GPU rendered a frame wrongly'}
+        return {'code': 'gpu_failed', 'exit': code, 'message': f'the GPU load stopped (exit {code})'}
+    if name == 'stress-ng':
+        if code == 2:
+            return {'code': 'verify_failed', 'message': 'stress-ng found a wrong result or a stressor crashed'}
+        return {'code': 'load_failed', 'exit': code, 'message': f'stress-ng stopped (exit {code})'}
+    if code == 3:
+        return {'code': 'verify_failed', 'message': f'{name}: a computation gave a wrong result'}
+    return {'code': 'load_failed', 'exit': code, 'message': f'{name} stopped (exit {code})'}
+
+
+class Stop:
+    def __init__(self):
+        self.requested = False
+
+    def __call__(self, *args):
+        self.requested = True
+
+
+def run_test(kind, duration, gpu, progress=None, stop=None):
+    stop = stop or Stop()
+    os.makedirs(RUN_DIR, exist_ok=True)
+    target_arm = get_config('arm_freq') or STOCK['arm_freq']
+    target_v3d = get_config('v3d_freq')
+    settings, preset, _, _ = committed()
+    if is_tryboot():
+        pending = load_state().get('pending_trial')
+        if pending:
+            settings, preset = pending['settings'], pending['preset']
+    baseline = get_throttled()
+    dmesg_start = len(dmesg_lines())
+    result = {
+        'kind': kind, 'time': int(time.time()), 'duration': duration,
+        'preset': preset, 'settings': settings, 'effective': effective_settings(),
+        'stress_tool': 'stress-ng' if shutil.which('stress-ng') else 'builtin',
+        'gpu_load': bool(gpu and os.access(GPULOAD, os.X_OK)),
+        'max_temp': None, 'min_arm_mhz': None, 'min_v3d_mhz': None, 'max_fan_rpm': None,
+        'throttled': None, 'passed': False, 'cancelled': False, 'reason': None,
+    }
+    failure = None
+    hot_since = None
+    low_count = 0
+    start = time.time()
+    with open(os.path.join(RUN_DIR, 'load.log'), 'w') as log:
+        procs = start_load(kind, duration, gpu, log)
+        try:
+            while True:
+                time.sleep(SAMPLE_S)
+                elapsed = time.time() - start
+                s = sample()
+                t = s['temp']
+                if t is not None:
+                    result['max_temp'] = max(result['max_temp'] or t, t)
+                if s['fan_rpm'] is not None:
+                    result['max_fan_rpm'] = max(result['max_fan_rpm'] or 0, s['fan_rpm'])
+                loaded = elapsed > 6
+                if loaded and s['arm_mhz']:
+                    result['min_arm_mhz'] = min(result['min_arm_mhz'] or s['arm_mhz'], s['arm_mhz'])
+                if loaded and gpu and s['v3d_mhz']:
+                    result['min_v3d_mhz'] = min(result['min_v3d_mhz'] or s['v3d_mhz'], s['v3d_mhz'])
+                if progress:
+                    progress({'type': 'progress', 'elapsed': round(elapsed), 'duration': duration,
+                              'temp': t, 'arm_mhz': s['arm_mhz'], 'v3d_mhz': s['v3d_mhz'],
+                              'throttled': f"0x{s['throttled']:x}", 'fan_rpm': s['fan_rpm']})
+                thr = s['throttled']
+                new = (thr & 0xf) | ((thr & ~baseline) & 0xf0000)
+                if new:
+                    flags = decode_throttled(new)
+                    names = sorted(set(flags['now'] + flags['since_boot']))
+                    failure = {'code': 'throttled', 'flags': names,
+                               'message': f'throttled: {throttle_text(names)}'}
+                    break
+                if t is not None and t >= TEMP_FAIL_C:
+                    hot_since = hot_since or time.time()
+                    if time.time() - hot_since > TEMP_FAIL_S:
+                        failure = {'code': 'temp_high', 'temp': t,
+                                   'message': f'temperature stayed at or above {TEMP_FAIL_C:g} C for {TEMP_FAIL_S} s'}
+                        break
+                else:
+                    hot_since = None
+                if loaded and s['arm_mhz'] and s['arm_mhz'] < target_arm * 0.97:
+                    low_count += 1
+                    if low_count >= 3:
+                        failure = {'code': 'clock_low', 'mhz': s['arm_mhz'], 'target': target_arm,
+                                   'message': f"the CPU ran at {s['arm_mhz']} MHz under load, not {target_arm} MHz"}
+                        break
+                else:
+                    low_count = 0
+                for name, p, sig in procs:
+                    code = p.poll()
+                    if code is not None and not (code == 0 and elapsed >= duration - 2 * SAMPLE_S):
+                        failure = load_failure(name, code)
+                        break
+                if failure:
+                    break
+                if stop.requested:
+                    result['cancelled'] = True
+                    break
+                if elapsed >= duration:
+                    break
+            if not failure and not result['cancelled']:
+                # stress-ng ends by itself at --timeout: let it, for its verdict
+                for name, p, sig in procs:
+                    if name == 'stress-ng':
+                        try:
+                            p.wait(30)
+                        except subprocess.TimeoutExpired:
+                            pass
+        finally:
+            stop_load(procs)
+        if not failure and not result['cancelled']:
+            for name, p, sig in procs:
+                if p.returncode not in (0, -sig, -signal.SIGTERM):
+                    failure = load_failure(name, p.returncode)
+                    break
+    result['throttled'] = decode_throttled(get_throttled())
+    result['elapsed'] = round(time.time() - start)
+    errors = [l for l in dmesg_lines()[dmesg_start:] if DMESG_RE.search(l)]
+    if not failure and errors:
+        failure = {'code': 'kernel_errors', 'lines': errors[-5:],
+                   'message': 'the kernel logged errors: ' + errors[-1].strip()}
+    if failure:
+        result['reason'] = failure
+    result['passed'] = not failure and not result['cancelled']
+    return result
+
+
+def cpu_worker():
+    """Built-in CPU load: a fixed hash chain, recomputed and compared."""
+    import hashlib
+    signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+    reference = None
+    while True:
+        h = b'pi-overclock'
+        for _ in range(200000):
+            h = hashlib.sha256(h).digest()
+        x = 1.0
+        for i in range(1, 200000):
+            x = (x * 1.000001 + i % 7) % 1e6
+        value = (h, x)
+        if reference is None:
+            reference = value
+        elif value != reference:
+            print('cpu worker: result mismatch', flush=True)
+            sys.exit(3)
+
+
+def mem_worker(mb):
+    """Built-in memory load: fill a buffer with a pattern and read it back."""
+    signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+    size = int(mb) * 1024 * 1024
+    buf = bytearray(size)
+    n = 0
+    while True:
+        pattern = bytes([(n * 37 + i) & 0xff for i in range(4096)])
+        block = pattern * (size // 4096)
+        buf[:] = block
+        if buf != block:
+            print('memory worker: read back differs', flush=True)
+            sys.exit(3)
+        n += 1
+
+
+# --------------------------------------------------------------------------
+# commands
+
+def emit(args, data, text=None):
+    if args.json:
+        print(json.dumps(data), flush=True)
+    elif text is not None:
+        print(text, flush=True)
+
+
+def status_data(live_only=False):
+    s = sample()
+    thr = decode_throttled(s['throttled'])
+    data = {
+        'live': {'arm_mhz': s['arm_mhz'], 'v3d_mhz': s['v3d_mhz'], 'core_mhz': s['core_mhz'],
+                 'temp': s['temp'], 'throttled': thr},
+        'fan': fan_state(),
+    }
+    if live_only:
+        return data
+    settings, preset, foreign, exists = committed()
+    state = load_state()
+    data.update({
+        'committed': {'preset': preset, 'settings': settings, 'description': describe(settings),
+                      'file_exists': exists, 'foreign_lines': foreign},
+        'effective': effective_settings(),
+        'tryboot': is_tryboot(),
+        'pending_trial': state['pending_trial'],
+        'last_trial': state['last_trial'],
+        'last_test': state['last_test'],
+        'boot_attempts': state['boot_attempts'],
+        'disabled_file': os.path.exists(flash_path(OVERCLOCK_TXT + '.disabled')),
+        'undervoltage_since_boot': bool(s['throttled'] & (1 << 16)),
+        'stress_tool': 'stress-ng' if shutil.which('stress-ng') else 'builtin',
+        'gpu_load': os.access(GPULOAD, os.X_OK),
+    })
+    return data
+
+
+def cmd_status(args):
+    data = status_data(args.live)
+    if args.json:
+        return emit(args, data)
+    live = data['live']
+    print(f"ARM {live['arm_mhz']} MHz  V3D {live['v3d_mhz']} MHz  core {live['core_mhz']} MHz  {live['temp']} C")
+    thr = live['throttled']
+    print(f"throttled {thr['value']}: now [{throttle_text(thr['now']) or 'none'}], "
+          f"since boot [{throttle_text(thr['since_boot']) or 'none'}]")
+    fan = data['fan']
+    print('fan: ' + ({True: f"{fan['rpm']} rpm", False: 'not detected', None: 'unknown'}[fan['present']]))
+    if args.live:
+        return
+    c = data['committed']
+    print(f"committed: {c['preset']} ({c['description']})")
+    if c['foreign_lines']:
+        print('  overclock.txt also has: ' + '; '.join(c['foreign_lines']))
+    print('effective (get_config): ' + ', '.join(f'{k}={v}' for k, v in data['effective'].items()))
+    if data['tryboot']:
+        print('this is a trial (tryboot) boot')
+    if data['pending_trial']:
+        p = data['pending_trial']
+        print(f"pending trial: {p['preset']} ({describe(p['settings'])})")
+    for name in ('last_trial', 'last_test'):
+        r = data[name]
+        if r:
+            verdict = 'passed' if r.get('passed') else ('cancelled' if r.get('cancelled') else 'failed')
+            when = time.strftime('%Y-%m-%d %H:%M', time.localtime(r['time']))
+            extra = f": {r['reason']['message']}" if r.get('reason') else ''
+            print(f"{name.replace('_', ' ')}: {verdict} {when}, {r.get('preset')} ({describe(r.get('settings') or {})}), "
+                  f"max {r.get('max_temp')} C{extra}")
+    if data['boot_attempts']:
+        print(f"unfinished boots with these settings: {data['boot_attempts']}")
+    if data['disabled_file']:
+        print('overclock.txt.disabled: settings the boot guard turned off')
+
+
+def cmd_presets(args):
+    data = [{'id': p['id'], 'settings': p['settings'], 'description': describe(p['settings']),
+             'above_mild': above_mild(p['settings'])} for p in PRESETS]
+    if args.json:
+        return emit(args, data)
+    for p in data:
+        print(f"{p['id']:10} {p['description']}")
+
+
+def cmd_limits(args):
+    data = {'limits': LIMITS, 'stock': STOCK, 'presets': [
+        {'id': p['id'], 'settings': p['settings'], 'above_mild': above_mild(p['settings'])} for p in PRESETS],
+        'quick_test_s': QUICK_TEST_S, 'extended_test_s': EXTENDED_TEST_S,
+        'temp_fail_c': TEMP_FAIL_C, 'retry_step': LIMITS['over_voltage_delta']['step']}
+    if args.json:
+        return emit(args, data)
+    for key, lim in LIMITS.items():
+        print(f"{key:20} {lim['min']}..{lim['max']} step {lim['step']} {lim['unit']} (stock {STOCK[key]})")
+    print('never written: force_turbo, core_freq, gpu_freq, over_voltage')
+    cmd_presets(args)
+
+
+def candidate_from(args):
+    if args.preset:
+        if args.arm is not None or args.ovd is not None or args.v3d is not None:
+            raise Error('usage', 'give a preset or values, not both')
+        for p in PRESETS:
+            if p['id'] == args.preset:
+                return dict(p['settings']), p['id']
+        raise Error('unknown_preset', f'unknown preset {args.preset}', preset=args.preset)
+    settings = {}
+    if args.arm is not None:
+        settings['arm_freq'] = args.arm
+    if args.ovd is not None:
+        settings['over_voltage_delta'] = args.ovd
+    if args.v3d is not None and args.v3d != 0:
+        settings['v3d_freq'] = args.v3d
+    errors = validate(settings)
+    if errors:
+        raise Error('invalid', '; '.join(e['message'] for e in errors), errors=errors)
+    settings = normalise(settings)
+    return settings, preset_of(settings)
+
+
+def check_candidate(settings):
+    """Blockers and warnings for applying settings now."""
+    errors = validate(settings)
+    blockers, warnings = [], []
+    if errors:
+        blockers.append({'code': 'invalid', 'message': '; '.join(e['message'] for e in errors)})
+    if above_mild(settings) and get_throttled() & (1 << 16):
+        blockers.append({'code': 'undervoltage',
+                         'message': 'the power supply dropped below its voltage since boot: '
+                                    'fix the supply (official 27 W, 5 V 5 A) before going beyond Mild'})
+    if load_state().get('pending_trial') and is_tryboot():
+        blockers.append({'code': 'trial_running', 'message': 'a trial is running now'})
+    fan = fan_state()
+    if settings and fan['present'] is False:
+        warnings.append({'code': 'no_fan', 'message': 'no fan detected: overclocking needs active cooling'})
+    return blockers, warnings
+
+
+def cmd_check(args):
+    settings, preset = candidate_from(args)
+    blockers, warnings = check_candidate(settings)
+    data = {'ok': not blockers, 'preset': preset, 'settings': settings, 'description': describe(settings),
+            'above_mild': above_mild(settings), 'blockers': blockers, 'warnings': warnings}
+    emit(args, data, '\n'.join([f'{preset}: {describe(settings)}'] +
+                               [f"blocked: {b['message']}" for b in blockers] +
+                               [f"warning: {w['message']}" for w in warnings]))
+    return 0 if not blockers else 1
+
+
+def start_trial(args, settings, preset, retry_of=None):
+    if not settings:
+        raise Error('stock', 'these are the stock settings: use "revert"')
+    blockers, warnings = check_candidate(settings)
+    if blockers:
+        raise Error(blockers[0]['code'], blockers[0]['message'], blockers=blockers)
+    with Lock():
+        own_cmdline = stage_trial(settings)
+        state = load_state()
+        state['pending_trial'] = {'preset': preset, 'settings': settings, 'skip_test': bool(args.skip_test),
+                                  'time': int(time.time()), 'retry_of': retry_of, 'watchdog': own_cmdline}
+        save_state(state)
+        history('trial_staged', preset=preset, settings=settings, skip_test=bool(args.skip_test))
+    data = {'ok': True, 'preset': preset, 'settings': settings, 'description': describe(settings),
+            'warnings': warnings, 'rebooting': not args.no_reboot, 'watchdog': own_cmdline}
+    emit(args, data, f'trial staged: {preset} ({describe(settings)})' +
+         ('' if args.no_reboot else ', restarting into it'))
+    if not args.no_reboot:
+        reboot(tryboot=True)
+    return 0
+
+
+def cmd_try(args):
+    settings, preset = candidate_from(args)
+    return start_trial(args, settings, preset)
+
+
+def retry_candidate(state):
+    last = state.get('last_trial')
+    if not last or last.get('passed') or not last.get('can_retry'):
+        return None
+    settings = dict(last['settings'])
+    settings['over_voltage_delta'] = settings.get('over_voltage_delta', 0) + LIMITS['over_voltage_delta']['step']
+    if validate(settings):
+        return None
+    return normalise(settings)
+
+
+def cmd_retry(args):
+    settings = retry_candidate(load_state())
+    if not settings:
+        raise Error('no_retry', 'there is no failed trial that more voltage could help')
+    return start_trial(args, settings, 'custom', retry_of=load_state()['last_trial'].get('time'))
+
+
+def cmd_revert(args):
+    with Lock():
+        settings, preset, _, _ = committed()
+        commit({}, 'stock')
+        state = load_state()
+        state['pending_trial'] = None
+        state['boot_attempts'] = 0
+        save_state(state)
+        history('reverted', previous=settings)
+    emit(args, {'ok': True, 'previous': settings, 'rebooting': not args.no_reboot},
+         'reverted to stock' + ('' if args.no_reboot else ', restarting'))
+    if not args.no_reboot:
+        reboot()
+    return 0
+
+
+def cmd_test(args):
+    kind = 'extended' if args.extended else 'quick'
+    duration = args.duration or (EXTENDED_TEST_S if args.extended else QUICK_TEST_S)
+    gpu = args.gpu if args.gpu is not None else bool(args.extended)
+    stop = Stop()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    def progress(p):
+        if args.json:
+            print(json.dumps(p), flush=True)
+        else:
+            print(f"\r{p['elapsed']:4}/{p['duration']} s  {p['temp']} C  ARM {p['arm_mhz']} MHz  "
+                  f"V3D {p['v3d_mhz']} MHz  {p['throttled']}   ", end='', flush=True)
+    with Lock(wait=False, path=TEST_LOCK_FILE):
+        result = run_test(kind, duration, gpu, progress, stop)
+    with Lock():
+        state = load_state()
+        state['last_test'] = result
+        save_state(state)
+    history('test', kind=kind, passed=result['passed'], cancelled=result['cancelled'],
+            reason=(result['reason'] or {}).get('code'), max_temp=result['max_temp'])
+    if args.json:
+        print(json.dumps({'type': 'result', **result}), flush=True)
+    else:
+        print()
+        verdict = 'PASSED' if result['passed'] else ('cancelled' if result['cancelled'] else 'FAILED')
+        print(f"{verdict}: {result['elapsed']} s, max {result['max_temp']} C, "
+              f"min ARM {result['min_arm_mhz']} MHz" +
+              (f": {result['reason']['message']}" if result['reason'] else ''))
+    return 0 if result['passed'] or result['cancelled'] else 2
+
+
+def cmd_monitor(args):
+    signal.signal(signal.SIGINT, lambda *a: sys.exit(0))
+    while True:
+        s = sample()
+        if args.json:
+            print(json.dumps({**s, 'throttled': f"0x{s['throttled']:x}"}), flush=True)
+        else:
+            print(f"ARM {s['arm_mhz']:>5} MHz  V3D {s['v3d_mhz']:>5} MHz  core {s['core_mhz']:>4} MHz  "
+                  f"{s['temp']} C  throttled 0x{s['throttled']:x}  fan {s['fan_rpm']}", flush=True)
+        time.sleep(args.interval)
+
+
+def cmd_events(args):
+    state = load_state()
+    events = [e for e in state['events'] if args.all or not e['seen']]
+    emit(args, events, '\n'.join(f"{e['id']} {time.strftime('%Y-%m-%d %H:%M', time.localtime(e['time']))} "
+                                 f"{e['type']} {e.get('message', '')}" for e in events) or 'no events')
+
+
+def cmd_ack(args):
+    with Lock():
+        state = load_state()
+        for e in state['events']:
+            if args.all or e['id'] in args.ids:
+                e['seen'] = True
+        save_state(state)
+    emit(args, {'ok': True}, 'ok')
+
+
+def finish_trial(state, trial, result):
+    """Record the outcome of a trial in state (caller saves)."""
+    entry = {'time': int(time.time()), 'preset': trial['preset'], 'settings': trial['settings'],
+             'skip_test': trial['skip_test'], 'passed': result['passed'], 'reason': result.get('reason'),
+             'max_temp': result.get('max_temp'), 'min_arm_mhz': result.get('min_arm_mhz')}
+    code = (result.get('reason') or {}).get('code')
+    # more voltage helps instability, not heat or a weak power supply
+    entry['can_retry'] = (not result['passed'] and code in ('verify_failed', 'load_failed', 'kernel_errors',
+                                                             'gpu_mismatch', 'gpu_failed', 'trial_incomplete',
+                                                             'clock_low'))
+    state['last_trial'] = entry
+    if entry['can_retry'] and retry_candidate(state) is None:
+        entry['can_retry'] = False
+    state['pending_trial'] = None
+    if result['passed']:
+        state['boot_attempts'] = 0
+        add_event(state, 'trial_passed', preset=trial['preset'], settings=trial['settings'],
+                  message=f"overclock applied: {describe(trial['settings'])}")
+    else:
+        add_event(state, 'trial_failed', preset=trial['preset'], settings=trial['settings'],
+                  reason=result.get('reason'), can_retry=entry['can_retry'], tryboot=is_tryboot(),
+                  message=f"overclock trial failed: {(result.get('reason') or {}).get('message', '')}")
+    history('trial_' + ('passed' if result['passed'] else 'failed'), preset=trial['preset'],
+            settings=trial['settings'], reason=code)
+
+
+def cmd_trial_run(args):
+    """overclock-trial.service: test the pending trial on a tryboot boot."""
+    if not is_tryboot():
+        return 0
+    state = load_state()
+    trial = state.get('pending_trial')
+    if not trial:
+        return 0
+    stop = Stop()
+    signal.signal(signal.SIGTERM, stop)
+    with Lock():
+        state = load_state()
+        add_event(state, 'trial_started', preset=trial['preset'], settings=trial['settings'],
+                  skip_test=trial['skip_test'], duration=QUICK_TEST_S,
+                  message=f"testing {describe(trial['settings'])}")
+        save_state(state)
+    # the firmware read tryboot.txt?
+    mismatch = {k: get_config(k) for k in trial['settings'] if get_config(k) != trial['settings'][k]}
+    if mismatch:
+        result = {'passed': False, 'reason': {'code': 'not_applied', 'found': mismatch,
+                                              'message': 'the firmware did not apply the settings'}}
+    else:
+        deadline = time.time() + SETTLE_S
+        while time.time() < deadline and not stop.requested:
+            time.sleep(1)
+        if trial['skip_test']:
+            deadline = time.time() + NO_TEST_UP_S
+            while time.time() < deadline and not stop.requested:
+                time.sleep(1)
+            result = {'passed': not stop.requested, 'reason': None}
+        else:
+            def progress(p):
+                try:
+                    write_atomic(PROGRESS_FILE, json.dumps(p))
+                except OSError:
+                    pass
+            with Lock(path=TEST_LOCK_FILE):
+                result = run_test('quick', QUICK_TEST_S, 'v3d_freq' in trial['settings'], progress, stop)
+        if stop.requested:
+            # shut down during the trial: the next boot reports it unfinished
+            return 0
+    with Lock():
+        state = load_state()
+        if state.get('pending_trial') != trial:
+            return 0
+        if result['passed']:
+            commit(trial['settings'], trial['preset'])
+        finish_trial(state, trial, result)
+        save_state(state)
+    return 0
+
+
+def cmd_boot_early(args):
+    """overclock-bootguard.service: early in every boot."""
+    with Lock():
+        os.makedirs(STATE_DIR, exist_ok=True)
+        if not os.path.exists(flash_path(OVERCLOCK_TXT)):
+            commit({}, 'stock')
+        if is_tryboot():
+            return 0
+        state = load_state()
+        changed = False
+        trial = state.get('pending_trial')
+        if trial:
+            finish_trial(state, trial, {'passed': False, 'reason': {
+                'code': 'trial_incomplete',
+                'message': 'the trial boot did not finish (it froze, restarted or lost power)'}})
+            changed = True
+        settings, preset, _, _ = committed()
+        if settings:
+            if state['boot_attempts'] >= BOOT_ATTEMPTS_MAX:
+                with FlashWritable():
+                    os.replace(flash_path(OVERCLOCK_TXT), flash_path(OVERCLOCK_TXT + '.disabled'))
+                    write_atomic(flash_path(OVERCLOCK_TXT), render_overclock({}, 'stock'))
+                add_event(state, 'bootguard_disabled', preset=preset, settings=settings,
+                          attempts=state['boot_attempts'],
+                          message=f"{state['boot_attempts']} boots in a row did not finish: overclock turned off")
+                history('bootguard_disabled', preset=preset, settings=settings, attempts=state['boot_attempts'])
+                state['boot_attempts'] = 0
+                save_state(state)
+                reboot()
+                return 0
+            state['boot_attempts'] += 1
+            changed = True
+        elif state['boot_attempts']:
+            state['boot_attempts'] = 0
+            changed = True
+        if changed:
+            save_state(state)
+    return 0
+
+
+def cmd_boot_ok(args):
+    """overclock-bootok.timer (120 s after boot, Kodi running) and a clean
+    shutdown: this boot finished."""
+    if not args.shutdown and not kodi_active():
+        return 0
+    with Lock():
+        state = load_state()
+        if state['boot_attempts']:
+            state['boot_attempts'] = 0
+            save_state(state)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(prog='pi-overclock', description=__doc__.strip().splitlines()[0])
+    parser.add_argument('--json', action='store_true', help='machine-readable output')
+    sub = parser.add_subparsers(dest='cmd', required=True)
+
+    def add(name, func, help=None):
+        p = sub.add_parser(name, help=help)
+        p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='machine-readable output')
+        p.set_defaults(func=func)
+        return p
+
+    p = add('status', cmd_status, 'committed settings, live clocks, temperature, throttling, last test')
+    p.add_argument('--live', action='store_true', help='live values only')
+    add('presets', cmd_presets, 'list the presets')
+    add('limits', cmd_limits, 'hard limits and presets')
+    for name, func, hlp in (('try', cmd_try, 'stage settings and restart into a trial'),
+                            ('check', cmd_check, 'check whether settings can be applied now')):
+        p = add(name, func, hlp)
+        p.add_argument('preset', nargs='?')
+        p.add_argument('--arm', type=int, help='arm_freq, MHz')
+        p.add_argument('--ovd', type=int, help='over_voltage_delta, microvolts')
+        p.add_argument('--v3d', type=int, help='v3d_freq, MHz (0: stock)')
+        if name == 'try':
+            p.add_argument('--skip-test', action='store_true', help='keep the settings if the trial boot comes up')
+            p.add_argument('--no-reboot', action='store_true')
+    p = add('retry', cmd_retry, 'retry the last failed trial with more voltage')
+    p.add_argument('--skip-test', action='store_true')
+    p.add_argument('--no-reboot', action='store_true')
+    p = add('test', cmd_test, 'stability test of the current settings')
+    p.add_argument('--extended', action='store_true')
+    p.add_argument('--duration', type=int, help='seconds')
+    p.add_argument('--gpu', dest='gpu', action='store_true', default=None, help='add the GPU load')
+    p.add_argument('--no-gpu', dest='gpu', action='store_false')
+    p = add('revert', cmd_revert, 'go back to stock and restart')
+    p.add_argument('--no-reboot', action='store_true')
+    p = add('monitor', cmd_monitor, 'live clocks, temperature and throttling')
+    p.add_argument('--interval', type=float, default=SAMPLE_S)
+    p = add('events', cmd_events, 'results to report to the user')
+    p.add_argument('--all', action='store_true')
+    p = add('ack', cmd_ack, 'mark events as reported')
+    p.add_argument('ids', type=int, nargs='*')
+    p.add_argument('--all', action='store_true')
+    add('trial-run', cmd_trial_run, argparse.SUPPRESS)
+    add('boot-early', cmd_boot_early, argparse.SUPPRESS)
+    p = add('boot-ok', cmd_boot_ok, argparse.SUPPRESS)
+    p.add_argument('--shutdown', action='store_true')
+    add('_cpu-worker', lambda a: cpu_worker())
+    p = add('_mem-worker', lambda a: mem_worker(a.mb))
+    p.add_argument('mb')
+
+    args = parser.parse_args()
+    try:
+        return args.func(args) or 0
+    except Error as e:
+        if args.json:
+            print(json.dumps({'ok': False, 'error': {'code': e.code, 'message': e.message, **e.data}}), flush=True)
+        else:
+            print(f'pi-overclock: {e.message}', file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as e:
+        if args.json:
+            print(json.dumps({'ok': False, 'error': {'code': 'command_failed', 'message': str(e)}}), flush=True)
+        else:
+            print(f'pi-overclock: {e}', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

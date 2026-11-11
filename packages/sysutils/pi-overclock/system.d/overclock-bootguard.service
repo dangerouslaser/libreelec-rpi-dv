@@ -1,0 +1,17 @@
+[Unit]
+Description=Overclock boot guard
+DefaultDependencies=no
+After=local-fs.target
+Before=kodi.service sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/flash/config.txt
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pi-overclock boot-early
+# a clean shutdown counts as a finished boot
+ExecStop=/usr/bin/pi-overclock boot-ok --shutdown
+
+[Install]
+WantedBy=sysinit.target
