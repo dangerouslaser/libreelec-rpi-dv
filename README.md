@@ -28,7 +28,9 @@ What this tree adds to LibreELEC.tv:
 | Kodi: the GUI (OSD, menus) composited into the Dolby Vision signal, as the subtitles are, in the areas it covers | `projects/RPi/devices/RPi5/patches/kodi/0052` |
 | Kodi: Player information in Input, Processing and Output columns: the stream, its Dolby Vision configuration and RPU metadata, what the engine does with it and its GPU time, and the signal sent | `projects/RPi/devices/RPi5/patches/kodi/0054` |
 | Kodi: Dolby Vision settings that add CM v4.0 metadata to a video with only CM v2.9 metadata (Off, Without L2 trims only, Always, Auto, Auto 2) and remove its L2 trims, as the x86 build's do | `projects/RPi/devices/RPi5/patches/kodi/0055` |
-| LibreELEC's update menu offers this repository's releases, from `releases.json` on `main`, instead of LibreELEC's | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/` |
+| LibreELEC's update menu offers this repository's releases, from `releases.json` on `main`, instead of LibreELEC's | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/0001` |
+| `pi-overclock`: CPU and GPU overclocking with presets, a trial boot whose settings are kept only if its stability test passes, and a guard that turns an overclock off after boots that don't finish | `packages/sysutils/pi-overclock/`, `projects/RPi/devices/RPi5/config/overclock.txt` |
+| LibreELEC's settings: an Overclocking category (live clocks, temperature, fan and throttling, the presets, Apply and test, Revert to stock) | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/0002` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
 The engine's source is downloaded from this repository's release
@@ -39,7 +41,10 @@ reboot. The display mode must be the video's size: turn on "Adjust display
 refresh rate" with a 4K desktop for 4K streams. Dolby Vision must be among
 the player's "Allowed HDR dynamic metadata formats". The "Dolby Vision"
 group in Player / Videos holds the options every video starts with: the
-enhancement layer and the infoframe, and at the Expert settings level the
+enhancement layer and the infoframe; at the Advanced settings level "Add
+CM v4.0 metadata" (for a video with only CM v2.9 metadata: Off, Without L2
+trims only, Always, or the Auto rules, which go by the "TV peak luminance"
+entered there); and at the Expert level "Remove L2 trims" and the
 enhancement layer upscale, chroma MMR and filters. During playback the
 video settings' "Dolby Vision" group switches the output and changes the
 options for that video; "Set as default for all media" there stores them
@@ -75,6 +80,16 @@ use the VRR modes. "Variable refresh rate"
 `vc4.vrr=0` on the kernel command line (`cmdline.txt`) in the kernel. HDMI
 2.1 VRR without FreeSync isn't supported.
 
+**Overclocking:** LibreELEC / Overclocking shows the CPU and GPU clocks,
+temperature, fan and throttling, and offers the Mild, Moderate and High
+presets (custom values in expert mode). "Apply and test" restarts once
+with the new settings and runs a five-minute stability test; they are
+kept only if it passes, and a trial that fails from instability can be
+retried with a little more voltage. "Revert to stock" undoes them. An
+overclock needs active cooling: a preset that reaches the temperature
+limit under the test is not kept. The same is `pi-overclock` on the
+command line.
+
 **3D:** set "Playback mode of stereoscopic 3D video" (Player / Videos) to
 "Preferred mode", leave "Stereoscopic 3D mode" (System / Display) disabled
 with its preferred mode "Same as movie", and turn on "Adjust display
@@ -84,12 +99,13 @@ whitelist. A 3D display gets the frame-packed 1080p24 mode where it offers
 one; full side-by-side and top-and-bottom sources are converted to it.
 H.264 MVC is decoded in software.
 
-**Limitations:** with the OSD open, 4K FEL plays about 16 of 24 pictures a
-second (the GUI's composite and drawing take the GPU over the budget);
-dual-track profile 7 isn't read; the
-sharper enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't
-real time for 4K FEL on the Pi 5; field-coded H.264 MVC (3D camcorder
-recordings) crashes Kodi when it is deinterlaced. Tested on an LG B4, which
+**Limitations:** a large panel over the video (Player information) takes
+the engine over 24p's budget for 4K FEL (about 45 to 48 ms a picture of
+41.7) while it is shown; dual-track profile 7 isn't read; the sharper
+enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't real time
+for 4K FEL on the Pi 5; H.264 MVC crashes Kodi: a progressive stream in an
+MKV as its decoding starts (it played in 0.4.0), a field-coded one (3D
+camcorder recordings) when it is deinterlaced. Tested on an LG B4, which
 has no 3D modes: 3D was checked as side-by-side output there. The kernel
 is a 7.4 release candidate.
 
