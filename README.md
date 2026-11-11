@@ -17,7 +17,7 @@ What this tree adds to LibreELEC.tv:
 | The kernel's `Dolby Vision` HDMI connector property, attached by `vc4` | `projects/RPi/patches/linux/0001–0005` |
 | An ASoC fix: with GCC 16, no sound card bound and `vc4` crashed at boot | `projects/RPi/patches/linux/0006` |
 | FreeSync on `vc4`: the sink's range, `vrr_capable`, modes at the video rates that differ only in their vertical front porch from each size's fastest mode, switched without a modeset, and the FreeSync SPD infoframe | `projects/RPi/patches/linux/0007–0008` |
-| `pi-dv-engine`: the engine, `libpi_engine.so.2` | `packages/multimedia/pi-dv-engine/` |
+| `pi-dv-engine`: the engine, `libpi_engine.so.3` | `packages/multimedia/pi-dv-engine/` |
 | An FFmpeg fix: the V4L2 request HEVC decoder no longer hangs on close after running out of CMA | `packages/multimedia/ffmpeg/patches/rpi/0002-…` |
 | Kodi's build switch (`DOLBY_VISION_SUPPORT`, `-DENABLE_PIDV`) | `packages/mediacenter/kodi/package.mk` |
 | Kodi: Dolby Vision from the EDID, a fenced video plane, the connector state, the engine's renderer, the profile 7 enhancement layer decoder, a Dolby Vision group in the video settings, and subtitles composited into the Dolby Vision signal | `projects/RPi/devices/RPi5/patches/kodi/0001–0007` |
@@ -25,11 +25,12 @@ What this tree adds to LibreELEC.tv:
 | Kodi: stereoscopic 3D, Dom Cobley's series: HDMI frame-packed, side-by-side and top-and-bottom modes with an eye per video plane, H.264 MVC and MV-HEVC, Blu-ray 3D, 3D subtitles at the disc's depth | `projects/RPi/devices/RPi5/patches/kodi/0008–0046` |
 | Kodi: VRR_ENABLED on a `vrr_capable` connector, refresh rate switches to the modes the display changes to without resynchronising, a "Variable refresh rate" setting, and those modes in place of the display's modes of the same size and rate | `projects/RPi/devices/RPi5/patches/kodi/0047–0050` |
 | Kodi: the Dolby Vision options as settings in Player / Videos, which every video starts with | `projects/RPi/devices/RPi5/patches/kodi/0051` |
+| Kodi: the GUI (OSD, menus) composited into the Dolby Vision signal, as the subtitles are, in the areas it covers | `projects/RPi/devices/RPi5/patches/kodi/0052` |
 | LibreELEC's update menu offers this repository's releases, from `releases.json` on `main`, instead of LibreELEC's | `projects/RPi/devices/RPi5/patches/LibreELEC-settings/` |
 
 **Build:** as LibreELEC, `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64 make image`.
 The engine's source is downloaded from this repository's release
-(`pi-dv-engine-<version>.tar.xz`).
+`engine-<version>` (`pi-dv-engine-<version>.tar.xz`).
 
 **Use:** flash the image, or copy its `.tar` to `/storage/.update/` and
 reboot. The display mode must be the video's size: turn on "Adjust display
@@ -52,8 +53,8 @@ the menu, set "Automatic updates" to manual, turn on "Show custom
 channels" and enter `raw.githubusercontent.com/dangerouslaser/libreelec-rpi-dv/main`
 as a custom channel.
 
-Subtitles are composited into the Dolby Vision signal, in their own
-colours.
+Subtitles and the GUI over the video (the OSD, menus) are composited into
+the Dolby Vision signal, in their own colours.
 
 **VRR:** with a FreeSync display (its EDID has AMD's FreeSync block; turn
 FreeSync or VRR on in the TV's settings for that input), the kernel adds,
@@ -81,8 +82,9 @@ whitelist. A 3D display gets the frame-packed 1080p24 mode where it offers
 one; full side-by-side and top-and-bottom sources are converted to it.
 H.264 MVC is decoded in software.
 
-**Limitations:** the rest of the GUI over Dolby Vision video (menus, the
-OSD) is legible but in wrong colours; dual-track profile 7 isn't read; the
+**Limitations:** with the OSD open, 4K FEL plays about 16 of 24 pictures a
+second (the GUI's composite and drawing take the GPU over the budget);
+dual-track profile 7 isn't read; the
 sharper enhancement layer upscales (bicubic, Lanczos3, Annex B) aren't
 real time for 4K FEL on the Pi 5; field-coded H.264 MVC (3D camcorder
 recordings) crashes Kodi when it is deinterlaced. Tested on an LG B4, which
